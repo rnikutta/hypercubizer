@@ -11,13 +11,6 @@ In addition (but this is optional) you can supply the names for the read columns
 Example:
 tbw
 
-* Summary of set up
-* Configuration
-* Dependencies
-* Database configuration
-* How to run tests
-* Deployment instructions
-
 ### Who do I talk to? ###
 
 * Robert Nikutta

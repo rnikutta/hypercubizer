@@ -7,7 +7,7 @@ import numpy as N
 import h5py
 
 __author__ = "Robert Nikutta <robert.nikutta@gmail.com>"
-__version__ = "20150402"
+__version__ = "20150404"
 
 
 # TODO: add simple logging
