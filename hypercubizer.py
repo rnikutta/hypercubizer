@@ -1,4 +1,4 @@
-"""Find template based model files, read columns, convert them to n-dim hypercubes, store as HDF5.
+"""Find template-based model files, read columns, convert them to n-dim hypercubes, store as HDF5.
 """
 
 import os
@@ -7,37 +7,180 @@ import numpy as N
 import h5py
 
 __author__ = "Robert Nikutta <robert.nikutta@gmail.com>"
-__version__ = "20150404"
-
+__version__ = "20150408"
 
 # TODO: add simple logging
-
 
 class Hypercubes:
 
     def __init__(self,rootdir,pattern,cols,colnames=None,xcol=None,xcolname=None,paramnames=None):
 
-        """Init loads all data from rootdir and converts to hypercubes.
+        """Load columns from regex-matched files in rootdir and convert them
+        to hypercubes.
 
-        To actually store to HDF5 file, use __call__() function.
+        The computed hypercubes and other data can then be stored in
+        an HDF5 file (inside a dedicated group). The results of other
+        conversion runs (for instance on other model file sets) can be
+        stored into the same HDF5 file, but providing a different (not
+        yet existing) group name.
+
+        See 'Example' below for a quick how-to.
+
+        Parameters:
+        -----------
+        rootdir : str
+            Path to the root directory holding the files to be
+            scanned.
+
+        pattern : str
+            An example filename such as those that will be matched
+            with the pattern determined here. Only the basename of
+            'pattern' will be considered, i.e. no superordinate
+            directories.
+
+            See the docstring of get_pattern_and_paramnames() on how
+            you should format this example file name, or under
+            'Example' below.
+
+        cols : seq of integers
+            (Pythonic) indices of the columns to be read from every
+            matched file. There will be as many hypercubes as columns
+            you specify. Example: cols=(4,5,8).
+
+        colnames : {None, seq of strings}
+            If not None, these are the names of the columns, each
+            corresponding to one element in 'hypercubes'. Exactly as
+            many column names must be provided as there are members in
+            'hypercubes'. If None, generic column names will be
+            assigned (col00, col01, etc.)
+
+        paramnames : {None, seq}
+            None, or sequence of strings (length=number of
+            parameters).
+
+            If 'paramnames' is a sequence of strings, they will be
+            used as the parameter names. In this case the sequence
+            must be exactly as long as the number of values extracted
+            from 'pattern'.
+
+            If 'pattern' contains square brackets (i.e. if the file
+            names contain the parameter names), and 'paramnames' is
+            not a sequence of strings, then the parameter names
+            extracted from the pattern will be used.
+
+            If 'pattern' contains no square brackets (i.e. no
+            parameter names to be be extracted from the file names),
+            and 'paramnames' is not a sequence of strings, then
+            generic names will be created for the parameter names
+            ('param00','param01',etc.)
+
+        Example:
+        --------
+        Say your many files are in /home/foo/superproject
+        (possibly in subdirectories). Say also that all files are
+        named like this:
+
+          /home/foo/superproject/dir1/dir12/density0.01_gravity123_temperature1e4K.dat
+
+        You want to match the parameter names density, gravity,
+        temperature, and their numerical values, in all files. Let's
+        assume each file is structured like this:
+
+          # column 0     1        2        3
+          # wavelength   fluxA    fluxB    priceofgas
+          # micron       W/m^2    W/m^2    $/gallon
+          1.0e-2         1.3e-14  1.8e-15  2.51
+          1.0e-1         5.3e-14  2.3e-15  2.78
+          1.0e-0         2.0e-13  1.2e-14  2.13
+          ...
+        
+        Finally, let's say you want the two flux columns to be
+        converted to hypercubes, and you don't care about the price of
+        gas. You would also like the wavelength column to be stored
+        separately as an x-column. Simply do:
+
+          rootdir = '/home/foo/superproject'
+          pattern = '[density](0.01)_[gravity](123)_[temperature](1e4)K.dat'
+          columns = (1,2)
+          colnames = ('fluxA','fluxB')
+          H = Hypercubes(rootdir,pattern,columns,colnames,xcol=0,xcolname='wave_micron')
+
+        That's it! This will scan for all files in rootdir, keep only
+        those that match the example file name pattern, extract the
+        parameter values (in round brackets () in 'pattern'), extract
+        the parameter names (in square brackets []), load columns 1
+        and 2 from all matched files, and convert them to
+        3-dimensional hypercubes (we have 3 matched parameters). It
+        will also load the x-column 'wavelength' (column 0).
+
+        Once this is done, you can store everything in a convenient
+        HDF5 file:
+
+          HC('somestoragefile.hdf5',groupname='mymodels')
+
+        The groupname is optional, and if you don't provide it, the
+        basename of rootdir will be chosen (i.e. here 'superproject').
+
+        If you want another set of files (possibly with a completely
+        different regex pattern) to be stored as another group in the
+        same HDF5 file, just do the Hypercubes() step above, i.e.
+
+          # ... preparation ...
+          HC2 = Hypercubes(rootdir2,pattern2,columns2,colnames2,xcol=0,xcolname='something')
+
+        and then store via:
+
+          HC('somestoragefile.hdf5',groupname='foobar')  # note same HDF5 file name
+
+        To access the data in the HDF5 file:
+
+          import h5py
+          h = h5py.File('somestoragefile.hdf5','r')
+          h.items()
+            [(u'mymodels', <HDF5 group "/mymodels" (5 members)>),
+             (u'foobar', <HDF5 group "/foobar" (5 members)>),
+          h['mymodels'].items()
+            etc.
+
         """
 
-        self.rootdir = rootdir        # root directory where to look for files...
-        self.pattern = pattern        # that regexp-match the pattern
+        # regex pattern, number of values, extracted parameter names (if any)
+        self.pattern, self.nparams, self.paramnames = get_pattern_and_paramnames(pattern)
+
+        # parameter names
+        if isinstance(paramnames,(list,tuple)):
+            assert ( len(set(paramnames)) == self.nparams ), "The number of provided 'paramnames' (%d provided) must be equal to the number of matched values in 'pattern' (%d), and they must be unique." % (len(paramnames),self.nparams)
+            assert ( all([isinstance(e,str) for e in paramnames]) ), "Not all members in 'paramnames' seem to be strings."
+            self.paramnames = paramnames   # this overrides even the names extracted from 'pattern' (if any)
+        elif paramnames is None:
+            if self.paramnames == []:
+                self.paramnames = ['param%02d' % j for j in xrange(self.nparams)]
+        else:
+            raise Exception, "'paramnames' must either be None (and then 'pattern' must contain square brackets to indicate the parameter names to be extracted), or a list of strings."
+
+        self.rootdir = rootdir
         self.cols = cols              # from every matched file load column cols
         self.colnames = colnames      # optional: give names to the columns that will be converted; if None, will be named sequentially (['col0','col1',...]).
         self.xcol = xcol              # optional: designate a single column as the independent variable (useful for n-dim interpolation later)
         self.xcolname = xcolname      # optional name for xcol. Default is 'xcol'.
-        self.paramnames = paramnames  # optional: names of the matched parameters.
 
+        # get a list of all files under rootdir
         files = get_files_in_dir(self.rootdir,verbose=False,returnsorted=True)
 
+        # match all files to pattern, keep only the matching ones, and a list of matched numerical values
         self.matched_files, self.matched_values = match_pattern_to_strings(files,pattern=self.pattern,op=os.path.basename,progress=True)
 
+        # turn the list of all matched values (per file) into lists of unique values (per parameter)
         theta_strings, self.theta, self.hypercubeshape = get_uniques(self.matched_values,returnnumerical=True)
-        self.nparams = self.theta.size
 
         self.x, self.hypercubes = self.convert_columns_to_hypercube(self.matched_files,self.matched_values)
+
+        # As described in issue #5 on bitbucket, we need to work
+        # around a numpy and/or h5py bug. That's why we nan-pad
+        # self.theta, and store as a regular 2-d array (self.theta.pad)
+        self.theta = PadArray(self.theta)  # has members .pad (2-d array) and .unpad (list of 1-d arrays)
+
+        self.sanity()
 
 
     def __call__(self,storefile,groupname=None):
@@ -48,6 +191,19 @@ class Hypercubes:
         self.groupname = groupname
 
         self.store()
+
+
+    def sanity(self):
+        
+        assert (len(set([h.shape for h in self.hypercubes])) == 1), "Not all cubes in 'hypercubes' have the same shape."
+
+        if self.x is not None:
+            assert (self.x.size == self.hypercubes[0].shape[-1]), "xcol was given; the length of x must be equal to the size of each hypercube's last axis."
+
+        if self.colnames is not None:
+            assert (len(self.colnames) == len(self.hypercubes)), "The number of column names given in 'colnames' must be equal to the number of dimensions in each hypercube (plus one, of xcol was also given)."
+        else:
+            self.colnames = ['col' + '%02d' % j for j in xrange(len(self.hypercubes))]  # generic column names, if none provided
 
 
     def store(self):
@@ -62,7 +218,7 @@ class Hypercubes:
 
         print "Storing all data to file '%s', under group name '%s'" % (self.storefile,self.groupname)
         self.S = Storage(self.storefile)
-        self.S(self.groupname,self.hypercubes,self.theta,colnames=self.colnames,xcol=self.x,xcolname=self.xcolname)
+        self.S(self.groupname, self.hypercubes, self.theta.pad, self.colnames, self.paramnames, xcol=self.x, xcolname=self.xcolname)
 
 
     def convert_columns_to_hypercube(self,files,values):
@@ -165,7 +321,7 @@ class Storage:
         self.fname = fname
 
 
-    def __call__(self,groupname,hypercubes,theta,colnames=None,xcol=None,xcolname='xcol',paramnames=None):
+    def __call__(self,groupname,hypercubes,theta,colnames,paramnames,xcol=None,xcolname='xcol'):
 
         """Perform the storage to HDF5 file.
 
@@ -195,14 +351,21 @@ class Storage:
                
                 theta = array( array(1,2,3), array(0.1,0.4,0.9,1.8), array(-3,1.3,123.) )
 
-        colnames : sequence of strings, or None
+        colnames : {seq of strings, None}
             If not None, these are the names of the columns, each
             corresponding to one element in 'hypercubes'. Exactly as
             many column names must be provided as there are members in
-            'hypercubes'. If None, column names will be col0, col1,
-            etc.
+            'hypercubes'. If None, generic column names will be
+            assigned (col00, col01, etc.)
 
-        xcol : 1-d array, or None
+        paramnames : {seq of strings, None}
+            If not None, these are the names of the matched
+            parameters, each corresponding to one axis of a
+            hypercube. Exactly as many parameter names must be
+            provided as there are axes in a hypercube. If None,
+            parameter names will be param0, param1, etc.
+
+        xcol : {1-d array, None}
             If not None, this is the dependent variable, and will be
             stored as well. Useful for n-dim interpolation of the
             hypercubes. If None, no x-array will be stored in the HDF5
@@ -212,13 +375,6 @@ class Storage:
             Only used if xcol is not None. xcol will be saved under
             this name (default is 'xcol').
 
-        paramnames : sequence of strings, or None
-            If not None, these are the names of the matched
-            parameters, each corresponding to one axis of a
-            hypercube. Exactly as many parameter names must be
-            provided as there are axes in a hypercube. If None,
-            parameter names will be param0, param1, etc.
-
         """
 
         self.groupname = groupname
@@ -227,9 +383,7 @@ class Storage:
         self.colnames = colnames
         self.xcol = xcol
         self.xcolname = xcolname
-        self.parnames = parnames
-
-        self.sanity()        # sanity checks
+        self.paramnames = paramnames
 
         self.open_file()     # try to open HDF5 file in append mode (or create new if it doesn't exist yet)
         self.create_group()  # if opened successfully, test of group already exists
@@ -238,27 +392,6 @@ class Storage:
 
         print "All data stored and file %s closed properly." % self.fname
 
-
-    def sanity(self):
-        
-        # all hypercubes equal shape
-        assert (len(set([h.shape for h in self.hypercubes])) == 1), "Not all cubes in 'hypercubes' have the same shape."
-
-        # if xcol is given, its length must be equal to the size of each hypercube's last axis
-        if self.xcol is not None:
-            assert (self.xcol.size == self.hypercubes[0].shape[-1]), "xcol was given; its length must be equal to the size of each hypercube's last axis."
-
-        # number of colnames (if provided) must be consistent with number of columns given
-        if self.colnames is not None:
-            assert (len(self.colnames) == len(self.hypercubes)), "The number of column names given in 'colnames' must be equal to the number of dimensions in each hypercube (plus one, of xcol was also given)."
-        else:
-            self.colnames = ['col' + '%03d' % j for j in xrange(len(self.hypercubes))]
-
-        if self.paramnames is not None:
-            assert ( len(self.paramnames) == len(self.hypercubes) ),  "The number of supplied parameter must equal the number of hypercubes."
-        else:
-            self.paramnames = ['param' + '%03d' % j for j in xrange(len(self.hypercubes))]
-            
 
     def open_file(self):
 
@@ -295,9 +428,28 @@ class Storage:
             dset = self.group.create_dataset(name,data=cube,dtype='float32')  # explicitly 4-bit to save storage and RAM
                 
         # store theta
-        dflt = h5py.special_dtype(vlen=N.dtype('float64'))
         print "Storing theta..."
-        dset = self.group.create_dataset('theta',data=self.theta, dtype=dflt)
+        dset = self.group.create_dataset('theta',data=self.theta,dtype='float64')  # 2-d nan-padded array
+
+#numpy bug [2190]        dflt = h5py.special_dtype(vlen=N.dtype('float64'))
+#numpy bug [2190]        print "Storing theta..."
+#numpy bug [2190]
+#numpy bug [2190]
+#numpy bug [2190]
+#numpy bug [2190]#        dset = self.group.create_dataset('theta',data=self.theta, dtype=dflt)
+#numpy bug [2190]
+#numpy bug [2190]        # need to store the ragged array 'theta' member-by-member, b/c it fails in one go, i.e.
+#numpy bug [2190]        #   dset = self.group.create_dataset('theta',data=self.theta, dtype=dflt)
+#numpy bug [2190]        # presumably due to a bug in h5py.
+#numpy bug [2190]        dset = self.group.create_dataset('theta', (len(self.theta),), dtype=dflt)
+#numpy bug [2190]        print "len(self.theta), len(dset), dset.shape, dset.size = ", len(self.theta), len(dset), dset.shape, dset.size
+#numpy bug [2190]        for j,e in enumerate(self.theta):
+#numpy bug [2190]            
+#numpy bug [2190]            print "j, e, type(e), e.dtype: ", j, e, type(e), e.dtype
+#numpy bug [2190]            print "dset[j] :", dset[j]
+#numpy bug [2190]            dset[j] = e[...]
+#numpy bug [2190]            print "dset[j] :", dset[j]
+#numpy bug [2190]            print 
 
         # store xcol, if provided
         if self.xcol is not None:
@@ -307,10 +459,230 @@ class Storage:
         # store colnames as a list, to know their order
         dset = self.group.create_dataset('colnames',data=self.colnames)
 
-        
+        # store parameter names as a list
+        dset = self.group.create_dataset('paramnames',data=self.paramnames)
 
-# STAND-ALONE FUNCTIONS.
+
+class PadArray:
+
+    """Class for padding a ragged array.
+
+    This is limited to the simple case of a list of 1-d arrays of
+    variable lengths; convert them through padding into a 2-d array of
+    shape (len(list),max([e.size for e in list])). The values of all
+    1-d arrays are written left-bounded into the rows of the array,
+    with their right-hand sides padded with padval (default: nan) up
+    until the max length of all of the 1-d arrays.
+
+    The other direction also works, i.e. providing a 2-d array and
+    returning a list of 1-d arrays, with the specified padval removed
+    from them.
+
+    Parameters:
+    -----------
+    inp : seq
+        List or tuple of 1-d arrays of numbers (or things that are
+        float()-able.
+
+    padval : {float, nan}
+        Pad value to be used. Default is nan. The value can be
+        anything that can be converted by float(), e.g. '3', or 1e7,
+        etc.
+
+    Example:
+    --------
+    # pad a list of 1-d arrays
+    inp = [array([1,2]),array([1,2,3]),array([1,2,3,4,5])]
+    pa = PadArray(inp)
+    pa.unpad
+      Out:   [array([1,2]),array([1,2,3]),array([1,2,3,4,5])]
+    pa.pad
+      Out:  array([[  1.,   2.,  nan,  nan,  nan],
+                   [  1.,   2.,   3.,  nan,  nan],
+                   [  1.,   2.,   3.,   4.,   5.]])
+
+    # unpad a 2-d array
+    inp = array( [1.,2.,-1.,-1.,-1.],
+                 [1.,2.,3., -1.,-1.],
+                 [1.,2.,3.,  4., 5.] )
+    pa = PadArray(inp,padval=-1)
+    pa.pad
+      Out:  array( [1.,2.,-1.,-1.,-1.],
+                   [1.,2.,3., -1.,-1.],
+                   [1.,2.,3.,  4., 5.] )
+    pa.unpad
+      Out:  [array([ 1.,  2.]), array([ 1.,  2.,  3.]), array([ 1.,  2.,  3.,  4.,  5.])]
+
+    """
+
+    def __init__(self,inp,padval=N.nan):
+
+        self.inp = inp
+        self.padval = padval
+        self._setup()
+        self._convert()
+
+
+    def _setup(self):
+
+        try:
+            self.padval = float(self.padval)
+        except ValueError:
+            raise Exception, "padval is not convertible to a floating-point number."
+
+        if isinstance(self.inp,(list,tuple)):
+            # TODO: check if all members of inp can be safely converted to 1-d numerical arrays
+            self.inpmode = 'unpadded'
+            self.unpad = self.inp
+            self.nrow = len(self.unpad)
+            self.ncol = max([e.size for e in self.unpad])
+
+        elif isinstance(self.inp,(N.ndarray)):
+            if self.inp.ndim == 2:
+                self.inpmode = 'padded'
+                self.pad = self.inp
+                self.nrow, self.ncol = self.inp.shape
+            else:
+                raise Exception, "input appears to be an array, but is not 2-d."
+
+        else:
+            raise Exception, "input is neither a sequence of 1-d arrays, nor a 2-d array."
+
+
+    def _convert(self):
+
+        if self.inpmode == 'unpadded':
+            self._pad()
+        elif self.inpmode == 'padded':
+            self._unpad()
+
+
+    def _pad(self):
+
+        self.pad = N.ones((self.nrow,self.ncol))*self.padval
+
+        for j,e in enumerate(self.unpad):
+            self.pad[j,:e.size] = e
+
+
+    def _unpad(self):
+
+        self.unpad = []
+
+        for j in xrange(self.nrow):
+            aux = self.pad[j,:]
+
+            if N.isnan(self.padval):
+                aux = aux[~N.isnan(aux)]
+            else:
+                aux = aux[aux!=self.padval]
+                
+            self.unpad.append(aux)
+            
+       
+
+# STAND-ALONE FUNCTIONS
 # They could be useful outside of the scope of hypercubizer.
+
+def get_pattern_and_paramnames(examplefile):
+
+    """Extract regex matchig pattern and (optinally) the parameter names
+    from a single example of a file name to be matched.
+
+    Assuming that the file names to be matched contain some numerical
+    parameter values, this function will determine the regex pattern
+    needed to extract these parameter values from all similarily named
+    files.
+
+    Optionally, if the file names to be matched also contain parameter
+    names, these names can also be extracted here.
+
+    Parameters:
+    -----------
+    examplefile : str
+        The filename such as those that will be matched with the
+        pattern determined here. Only the basename of 'examplefile'
+        will be considered, i.e. no superordinate directories.
+
+    Usage/examples:
+    ---------------
+    Enclose the numerical values of the parameters that are encoded in
+    the file name with round brackets (), and optionally the parameter
+    names in square brackets []. E.g., if the example file name is
+
+      'density0.01_gravity123_temperature1e4K.dat'
+    
+    and there are three numerical parameters, you should supply this:
+
+      example='density(0.01)_gravity(123)_temperature(1e4)K.dat'
+
+    Note that what is in parentheses must be convertible to a floating
+    point number.
+
+    If the parameter names are density, gravity and temperature, and
+    you wish them to be returned as well, supply this:
+
+      example='[density](0.01)_[gravity](123)_[temperature](1e4)K.dat'
+
+    You don't have to convert all the numbers in a file name to
+    matched parameters. E.g. you could just supply:
+
+      example='[density](0.01)_gravity123_[temperature](1e4)K.dat'
+
+    and this would only return the parameter names
+    ['density','temperature'], and a regex pattern that matches the
+    two numerical values in round brackets.
+
+    Finally, note that if you ask to extract the parameter names (the
+    [] brackets), the number of [] and () pairs must be equal (i.e. as
+    many parameter names as parameter numerical values).
+
+    Returns:
+    --------
+    pattern, paramernames : (str,list)
+
+        The regex matching pattern needed to extract the parameter
+        names and (optinally) the parameter names from files named in the same fashion as 'examplefile'
+
+    """
+
+#    example = '[tauinf](0.10)[nu](0.3)_[ageb](10.00)_[fmol](.10)_[tesc](.005)_[rcm](6.14)_[rc](1.92)_beta1.8.0'  # infer param names and pattern
+#    example2 = 'tauinf(0.10)nu(0.3)_ageb(10.00)_fmol(.10)_tesc(.005)_rcm(6.14)_rc(1.92)_beta1.8.0'               # infer only pattern; parnames either user-set, or generic
+
+    square_pattern = re.compile('\[(.+?)\]')   # look for square brackets; if present, they contain the parameter names
+
+    number = '(.+?)'   # this doesn't check for digits, but it also matches things like '1e7'; we can perform float()-abilty tests after matching
+    round_pattern = re.compile(r"\("+number+r"\)")   
+
+    # try to extract parameter values from the supplied example pattern
+    values = round_pattern.findall(examplefile)
+    if values == []:
+        raise Exception, "No numerical parameter values found in 'examplefile'. Make sure to enclose the numerical value is round brackets, e.g. (0.127)."
+    else:
+        # check if all found values can be converted to floats
+        try:
+            dummy = N.array(values,dtype=N.float64)
+        except ValueError:
+            print "Not all parameter values in 'examplefile' (those enclosed in round brackets ()) could be converted to floating-point numbers. Please check."
+
+    # try to extract parameter names
+    paramnames = square_pattern.findall(examplefile)
+    if paramnames == []:
+        # no automatic param names; either user supplies them separately, or we'll do generic ones (par0, par1, etc.)
+        print "No automatic parameter names could be determined from the supplied example file pattern."
+    else:
+        assert (len(values) == len(paramnames)), "Number of round () and square brackets [] in 'examplefile' must be equal (same number of parameter names and parameter values)."
+    
+    # Generate the actual search pattern: replace all instances of a
+    # number in round brackets with the actual 'number' regex pattern
+    pattern = re.sub(round_pattern.pattern, number, examplefile)
+
+    # Remove square brackets from the pattern (if any); we don't need
+    # them in the regex search pattern
+    pattern = pattern.translate(None,'[]')
+
+    return pattern, len(values), paramnames  # caution: paramnames can be None; check externally
+
 
 def get_uniques(values,returnnumerical=True):
 
@@ -370,7 +742,8 @@ def get_uniques(values,returnnumerical=True):
     shape = [u.size for u in uniques]
 
     if returnnumerical == True:
-        uniques_float = N.array([e.astype('float64') for e in uniques])
+#        uniques_float = N.array([e.astype('float64') for e in uniques])
+        uniques_float = [e.astype('float64') for e in uniques]
         return uniques, uniques_float, shape
 
     else:
@@ -417,9 +790,9 @@ def get_files_in_dir(root,verbose=False,returnsorted=True):
 def match_pattern_to_strings(strings,\
                              pattern='tauinf(.+)nu(.+)_ageb(.+)_fmol(.+)_tesc(.+)_rcm(.+)_rc(.+)_beta.+\.0',\
                              op=os.path.basename,\
-                             progress=True):
+                             progress=True,patterntype='noname'):
 
-    """Match a regexp pattern to a list of strings.
+    """Match a regex pattern to a list of strings.
 
     Match a regular expression 'pattern' to all members of list
     'strings'. If an optional operation 'op' is specified (defaults to
@@ -432,11 +805,11 @@ def match_pattern_to_strings(strings,\
         List of strings. Each string will be matched against 'pattern'
 
     pattern : str
-        Regexp pattern, with parentheses standing for groups to be
+        Regex pattern, with parentheses standing for groups to be
         matched.
 
     op : func reference, optional
-        op(elem) is applied to each element in strings before regexp
+        op(elem) is applied to each element in strings before regex
         pattern matching is performed.  Example: op=os.path.basename()
 
     progress : bool
@@ -454,10 +827,9 @@ def match_pattern_to_strings(strings,\
         i-th element in matched_strings.
 
     """
-    
 
-    # pattern to look for in file names
     rg = re.compile(pattern)
+
     nmatches = rg.groups   # number of expected name matches in each scanned model file name
 
     matched_strings = []
