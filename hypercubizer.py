@@ -3,11 +3,12 @@
 
 import os
 import re
+import warnings
 import numpy as N
 import h5py
 
 __author__ = "Robert Nikutta <robert.nikutta@gmail.com>"
-__version__ = "20150408"
+__version__ = "20150409"
 
 # TODO: add simple logging
 
@@ -424,7 +425,7 @@ class Storage:
         # store hypercubes
         for j,cube in enumerate(self.hypercubes):
             name = self.colnames[j]
-            print "Storing column %s..." % name
+            print "Storing hypercube %s..." % name
             dset = self.group.create_dataset(name,data=cube,dtype='float32')  # explicitly 4-bit to save storage and RAM
                 
         # store theta
@@ -742,11 +743,11 @@ def get_uniques(values,returnnumerical=True):
     shape = [u.size for u in uniques]
 
     if returnnumerical == True:
-#        uniques_float = N.array([e.astype('float64') for e in uniques])
-        uniques_float = [e.astype('float64') for e in uniques]
+#        uniques_float = [e.astype('float64') for e in uniques]
+        uniques_float = [ N.sort(e.astype('float64')) for e in uniques ]
         return uniques, uniques_float, shape
-
     else:
+        warnings.warn("CAUTION! 'uniques' is not necessarily sorted numerically! Give returnnumerical=True, and use the uniques_float returned value.")
         return uniques, shape
 
 
