@@ -9,7 +9,7 @@ Please see docstring of PadArray for usage.
 """
 
 __author__ = "Robert Nikutta"
-__version__ = "20150506"
+__version__ = "20150507"
 
 import numpy as N
 
