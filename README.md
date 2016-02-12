@@ -71,7 +71,7 @@ wavelength. So telling [hypercubizer] which column holds is the
 wavelengths, it will store it alongside the hypercubes. This is
 super-convenient if you want to do N-dimensional interpolation of your
 entire model database. (Such interpolation code is also available from
-the same author, here: [ndiminterpolation](../ndiminterpolation/).)
+the same author, here: [ndiminterpolation](https://github.com/rnikutta/ndiminterpolation/).)
 
 ```python
 xcol = 0
