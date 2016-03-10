@@ -7,164 +7,26 @@ import warnings
 import numpy as N
 import h5py
 from externals.padarray import padarray
+import pyfits
+import filefuncs
 
 __author__ = "Robert Nikutta <robert.nikutta@gmail.com>"
-__version__ = "20150506"
+__version__ = "20160309"
 
 # TODO: add simple logging
 
+
 class Hypercubes:
 
-    def __init__(self,rootdir,pattern,cols,colnames=None,xcol=None,xcolname=None,paramnames=None):
+    def __init__(self,rootdir,pattern,hypercubenames=None,func='asciitable',**kwargs):
 
-        """Load columns from regex-matched files in rootdir and convert them
-        to hypercubes.
-
-        The computed hypercubes and other data can then be stored in
-        an HDF5 file (inside a dedicated group). The results of other
-        conversion runs (for instance on other model file sets) can be
-        stored into the same HDF5 file, but providing a different (not
-        yet existing) group name.
-
-        See 'Example' below for a quick how-to.
-
-        Parameters:
-        -----------
-        rootdir : str
-            Path to the root directory holding the files to be
-            scanned.
-
-        pattern : str
-            An example filename such as those that will be matched
-            with the pattern determined here. Only the basename of
-            'pattern' will be considered, i.e. no superordinate
-            directories.
-
-            See the docstring of get_pattern_and_paramnames() on how
-            you should format this example file name, or under
-            'Example' below.
-
-        cols : seq of integers
-            (Pythonic) indices of the columns to be read from every
-            matched file. There will be as many hypercubes as columns
-            you specify. Example: cols=(4,5,8).
-
-        colnames : {None, seq of strings}
-            If not None, these are the names of the columns, each
-            corresponding to one element in 'hypercubes'. Exactly as
-            many column names must be provided as there are members in
-            'hypercubes'. If None, generic column names will be
-            assigned (col00, col01, etc.)
-
-        paramnames : {None, seq}
-            None, or sequence of strings (length=number of
-            parameters).
-
-            If 'paramnames' is a sequence of strings, they will be
-            used as the parameter names. In this case the sequence
-            must be exactly as long as the number of values extracted
-            from 'pattern'.
-
-            If 'pattern' contains square brackets (i.e. if the file
-            names contain the parameter names), and 'paramnames' is
-            not a sequence of strings, then the parameter names
-            extracted from the pattern will be used.
-
-            If 'pattern' contains no square brackets (i.e. no
-            parameter names to be be extracted from the file names),
-            and 'paramnames' is not a sequence of strings, then
-            generic names will be created for the parameter names
-            ('param00','param01',etc.)
-
-        Example:
-        --------
-        Say your many files are in /home/foo/superproject
-        (possibly in subdirectories). Say also that all files are
-        named like this:
-
-          /home/foo/superproject/dir1/dir12/density0.01_gravity123_temperature1e4K.dat
-
-        You want to match the parameter names density, gravity,
-        temperature, and their numerical values, in all files. Let's
-        assume each file is structured like this:
-
-          # column 0     1        2        3
-          # wavelength   fluxA    fluxB    priceofgas
-          # micron       W/m^2    W/m^2    $/gallon
-          1.0e-2         1.3e-14  1.8e-15  2.51
-          1.0e-1         5.3e-14  2.3e-15  2.78
-          1.0e-0         2.0e-13  1.2e-14  2.13
-          ...
-        
-        Finally, let's say you want the two flux columns to be
-        converted to hypercubes, and you don't care about the price of
-        gas. You would also like the wavelength column to be stored
-        separately as an x-column. Simply do:
-
-          rootdir = '/home/foo/superproject'
-          pattern = '[density](0.01)_[gravity](123)_[temperature](1e4)K.dat'
-          columns = (1,2)
-          colnames = ('fluxA','fluxB')
-          H = Hypercubes(rootdir,pattern,columns,colnames,xcol=0,xcolname='wave_micron')
-
-        That's it! This will scan for all files in rootdir, keep only
-        those that match the example file name pattern, extract the
-        parameter values (in round brackets () in 'pattern'), extract
-        the parameter names (in square brackets []), load columns 1
-        and 2 from all matched files, and convert them to
-        3-dimensional hypercubes (we have 3 matched parameters). It
-        will also load the x-column 'wavelength' (column 0).
-
-        Once this is done, you can store everything in a convenient
-        HDF5 file:
-
-          HC('somestoragefile.hdf5',groupname='mymodels')
-
-        The groupname is optional, and if you don't provide it, the
-        basename of rootdir will be chosen (i.e. here 'superproject').
-
-        If you want another set of files (possibly with a completely
-        different regex pattern) to be stored as another group in the
-        same HDF5 file, just do the Hypercubes() step above, i.e.
-
-          # ... preparation ...
-          HC2 = Hypercubes(rootdir2,pattern2,columns2,colnames2,xcol=0,xcolname='something')
-
-        and then store via:
-
-          HC('somestoragefile.hdf5',groupname='foobar')  # note same HDF5 file name
-
-        To access the data in the HDF5 file:
-
-          import h5py
-          h = h5py.File('somestoragefile.hdf5','r')
-          h.items()
-            [(u'mymodels', <HDF5 group "/mymodels" (5 members)>),
-             (u'foobar', <HDF5 group "/foobar" (5 members)>),
-          h['mymodels'].items()
-            etc.
-
-        """
+        self.hypercubenames = hypercubenames
+        self.func = getattr(filefuncs,func)
 
         # regex pattern, number of values, extracted parameter names (if any)
-        self.pattern, self.nparams, self.paramnames = get_pattern_and_paramnames(pattern)
-
-        # parameter names
-        if isinstance(paramnames,(list,tuple)):
-            assert ( len(set(paramnames)) == self.nparams ), "The number of provided 'paramnames' (%d provided) must be equal to the number of matched values in 'pattern' (%d), and they must be unique." % (len(paramnames),self.nparams)
-            assert ( all([isinstance(e,str) for e in paramnames]) ), "Not all members in 'paramnames' seem to be strings."
-            self.paramnames = paramnames   # this overrides even the names extracted from 'pattern' (if any)
-        elif paramnames is None:
-            if self.paramnames == []:
-                self.paramnames = ['param%02d' % j for j in xrange(self.nparams)]
-        else:
-            raise Exception, "'paramnames' must either be None (and then 'pattern' must contain square brackets to indicate the parameter names to be extracted), or a list of strings."
+        self.pattern, self.Nparam, self.paramnames = get_pattern_and_paramnames(pattern)
 
         self.rootdir = rootdir
-        self.cols = cols              # from every matched file load column cols
-        self.colnames = colnames      # optional: give names to the columns that will be converted; if None, will be named sequentially (['col0','col1',...]).
-        self.xcol = xcol              # optional: designate a single column as the independent variable (useful for n-dim interpolation later)
-        self.xcolname = xcolname      # optional name for xcol. Default is 'xcol'.
 
         # get a list of all files under rootdir
         files = get_files_in_dir(self.rootdir,verbose=False,returnsorted=True)
@@ -175,55 +37,31 @@ class Hypercubes:
         # turn the list of all matched values (per file) into lists of unique values (per parameter)
         theta_strings, self.theta, self.hypercubeshape = get_uniques(self.matched_values,returnnumerical=True)
 
-        self.x, self.hypercubes = self.convert_columns_to_hypercube(self.matched_files,self.matched_values)
+        # return hypercubes, but also update: theta, paramnames
+#        self.hypercubes = self.convert(self.matched_files,self.matched_values,filereadfunc=self.func,**kwargs)
+        self.hypercubes = self.convert(self.matched_files,self.matched_values,**kwargs)
 
         # As described in issue #5 on bitbucket, we need to work
         # around a numpy and/or h5py bug. That's why we nan-pad
         # self.theta, and store as a regular 2-d array (self.theta.pad)
+        print "self.theta before PadArray = ", self.theta
         self.theta = padarray.PadArray(self.theta)  # has members .pad (2-d array) and .unpad (list of 1-d arrays)
 
         self.sanity()
-
-
-    def __call__(self,storefile,groupname=None):
-
-        """Store to a group in an HDF5 file, if you like. You should like."""
-
-        self.storefile = storefile
-        self.groupname = groupname
-
-        self.store()
 
 
     def sanity(self):
         
         assert (len(set([h.shape for h in self.hypercubes])) == 1), "Not all cubes in 'hypercubes' have the same shape."
 
-        if self.x is not None:
-            assert (self.x.size == self.hypercubes[0].shape[-1]), "xcol was given; the length of x must be equal to the size of each hypercube's last axis."
-
-        if self.colnames is not None:
-            assert (len(self.colnames) == len(self.hypercubes)), "The number of column names given in 'colnames' must be equal to the number of dimensions in each hypercube (plus one, of xcol was also given)."
+        if self.hypercubenames is not None:
+            assert (len(self.hypercubenames) == self.Nhypercubes),\
+                "The number of hypercube names given in 'hypercubenames' (%d) must be equal to the number of hypercubes (%d)." % (len(self.hypercubenames),self.Nhypercubes)
         else:
-            self.colnames = ['col' + '%02d' % j for j in xrange(len(self.hypercubes))]  # generic column names, if none provided
+            self.hypercubenames = ['hc' + '%02d' % j for j in xrange(self.Nhypercubes)]  # generic hypercube names, if none provided
 
 
-    def store(self):
-
-        """The actual storage method."""
-
-        if self.groupname is None:
-            try:
-                self.groupname = os.path.basename(os.path.normpath(self.rootdir))
-            except:
-                raise Exception
-
-        print "Storing all data to file '%s', under group name '%s'" % (self.storefile,self.groupname)
-        self.S = Storage(self.storefile)
-        self.S(self.groupname, self.hypercubes, self.theta.pad, self.colnames, self.paramnames, xcol=self.x, xcolname=self.xcolname)
-
-
-    def convert_columns_to_hypercube(self,files,values):
+    def convert(self,files,values,**kwargs):
 
         """Load specified columns from all pattern-matched files, and store
         them in a list of n-dimensional hypercubes, each properly shaped
@@ -257,20 +95,37 @@ class Hypercubes:
         """
 
         # check in the first files how many rows there are to read
-        data = N.loadtxt(files[0],usecols=(self.cols[0],),unpack=True)
+        print "In convert: kwargs = ", kwargs
+        datasets, axnames, axvals = self.func(files[0],**kwargs)  # kwargs are: cols, e.g.: cols=(0,(1,2,3)), xcol are the values of the column given by kwarg 'xcol'
 
-        # add the number of rows to the hypercube shape
-        self.hypercubeshape.append(data.size)
+        # how many cubes?
+        self.Nhypercubes = len(datasets)
 
-        # load the x-column, if user has requested it
-        if self.xcol is not None:
-            x = N.loadtxt(files[0],usecols=(self.xcol,),unpack=True)
-        else:
-            x = None
+        # one dataset has hoe many dimensions?
+        ndim = datasets[0].ndim
+
+        print "In convert: axnames = ", axnames
+        print "In convert: axvals = ", axvals
+
+        self.axnames = axnames
+        self.axvals = axvals
+        
+        if self.axnames is None:
+            self.axnames = ['ax%02d' % j for j in xrange(ndim)]
+
+        if self.axvals is None:
+            self.axvals = [N.arange(axissize) for axissize in datasets[0].shape] # this explictly assumes that all datasets are of same shape!
+            
+        print "AFTER: In convert: self.axnames = ", self.axnames
+        print "AFTER: In convert: self.axvals = ", self.axvals
+
+        # extend hypercube shape by whatever the returned shape of datasets is
+        self.hypercubeshape = self.hypercubeshape + list(datasets[0].shape)
+
 
         # prepare a list of n-dimensional hypercubes to hold the
         # re-shaped column data (one hypercube per column read)
-        ys = [N.zeros(shape=self.hypercubeshape) for j in xrange(len(self.cols))] # careful not to reference the same physical array n times
+        hypercubes = [N.zeros(shape=self.hypercubeshape) for j in xrange(self.Nhypercubes)] # careful not to reference the same physical array n times
 
         nvalues = float(len(values))
 
@@ -286,183 +141,342 @@ class Hypercubes:
             pos = [N.argwhere(self.theta[j]==float(e)).item() for j,e in enumerate(value)]
             pos.append(Ellipsis)  # this adds as many dimensions as necessary
 
-            # ndim=2 ensures same dimensionality of array, even if only one column was read
-            data = N.loadtxt(f,usecols=self.cols,ndmin=2)
-
-            # store the read columns (iy) into the appropriate  hypercubes, in the determined location 'pos'.
-            for iy in xrange(len(ys)):
-                ys[iy][pos] = data[:,iy]
-
-        return x, ys
+            datasets, axnames, axvals = self.func(f,**kwargs)  # kwargs are: cols, e.g.: cols=(0,(1,2,3))
+            
+            # store the read datasets (iy) into the appropriate hypercubes, in the determined N-dim index 'pos'.
+            for iy in xrange(len(hypercubes)):
+                hypercubes[iy][pos] = datasets[iy]
 
 
-class Storage:
+        # extend list of parameter names by the axes of a single dataset
+        self.paramnames = self.paramnames + list(self.axnames)
+        
+        if isinstance(self.axvals,list):
+            self.theta = self.theta + self.axvals
+        elif isinstance(self.axvals,N.ndarray):
+            self.theta.append(self.axvals)
 
-    def __init__(self,fname):
+        self.Nparam += len(self.axnames)
+                      
+        return hypercubes
 
-        """Store data to an HDF5 file.
 
-        Store a list of hypercubes, an x-column, theta arrays, and
-        column names, to an HDF5 file.
+    def store2hdf(self,filename=None,groupname=None): # e.g. filename='foo.hdf', groupname='imgdata'
 
-        Parameters
-        ----------
-        fname : str
-            Path to HDF5 output file. If file exists, we'll try to
-            open it in append mode. Otherwise we'll try to create the
-            file.
+        """Store attribiutes of self to an hdf5 file.
 
-        Usage
-        -----
-        Instantiate the Storage class by providing the path to the
-        HDF5 file. Please read the docstrings of __call__() for the
-        storage syntax.
+        Parameters:
+        -----------
+        filename: None or str
+            If None, a default string name will be computed as the
+            tail of self.rootdir (plus hdf5 extension). If not None,
+            filename is the name of the hdf5 output file. If filename
+            does not end with '.hdf5', this suffix will be added.
+
+        groupname : None or str
+            The name of the top-level group in the hdf5 file to write
+            the output to. If None, the root group will simply be '/'.
+
+        Examples:
+        ---------
+
+        # After computing H...
+        H.store2hdf(filename='foo.hdf5',grouname='mynicemodels')
 
         """
+        
+        def store_attrs(groupname,obj,attrs):
+            group = hdfout.create_group(groupname)
+            for attr in attrs:
+                print "    Storing attribute: ", attr
 
-        self.fname = fname
+                value = getattr(obj,attr)
 
+                # force reduced data size (4-byte 32-bit floats) for floating point arrays with more than one dimension
+                if isinstance(value,N.ndarray) and value.ndim > 1:
+                    dtype = N.float32
+                else:
+                    dtype = None
 
-    def __call__(self,groupname,hypercubes,theta,colnames,paramnames,xcol=None,xcolname='xcol'):
+                # create dataset
+                try:
+                    dataset = group.create_dataset(attr,data=value,compression='gzip',compression_opts=9,dtype=dtype)
+                except TypeError:
+                    dataset = group.create_dataset(attr,data=value,dtype=dtype)
 
-        """Perform the storage to HDF5 file.
+        # default hdf5 file name
+        if filename is None:
+            filename = os.path.split(self.rootdir)[-1]
 
-        A call opens the hdfile, creates a group, stores all data in
-        to the group, and closes the file. A new call with the same
-        HDF5 file name can store another set of data in a different
-        group, but in the same file.
+        # default top-level group name
+        if groupname is None:
+            groupname = '/'
 
-        Parameters
-        ----------
-        groupname : str
-            All data will be stored under this group name. Examples:
-               group='models'
-               group='libraryXYZ'
-               group='/librayA/sublibraryB7'
+        # construct the hdf5 file name (path and file name)
+        hdffile = os.path.join(self.rootdir,filename)
+        if not hdffile.endswith('.hdf5'):
+            hdffile = hdffile + '.hdf5'
+
+        print "\n\n### STORING RESUTLS TO HDF5 FILE ###"
+        print "File: %s" % hdffile
+
+        # open file for appending; creates it if file doesn't exist yet
+        hdfout = h5py.File(hdffile,'a')
+                    
+        # store all common metadata
+        attrs = ('pattern','rootdir','Nhypercubes','Nparam','hypercubenames','hypercubeshape','paramnames')
+        store_attrs(groupname,self,attrs)                    
+
+        # make a temporary object instance to hold the hypercubes
+        obj = DictToObject( dict(zip((self.hypercubenames),(self.hypercubes))) )
+
+        # store all hypercubes to a sub-group (called 'hypercubes') of the top-level group
+        group = groupname + '/hypercubes'
+        attrs = self.hypercubenames
+        store_attrs(group,obj,attrs)
+
+        print "CLOSING HDF5 FILE"
+        hdfout.close()
+
+        
+class DictToObject:
+
+    """Simple class to hold the contents of a dictionary as members of an object instance.
+
+    Example:
+    --------
+
+    dict = {'foo' : 7, 'bar' : ['orange','yellow']}
+    obj = DictToObject(dict)
+    obj.foo
+      7
+    obj.bar
+      ['orange','yellow']
+
+    """
     
-            This group must not exist yet in the output file.
-
-        hypercubes : list
-            List of n-dimensional arrays to store in the HDF5
-            file. All must have the same shape.
-
-        theta : array
-            Variable-length array of 1-d arrays, each containing the
-            unique and sorted values of a single model parameter
-            (corresponding to one of the axes of the hypercubes). E.g.
-               
-                theta = array( array(1,2,3), array(0.1,0.4,0.9,1.8), array(-3,1.3,123.) )
-
-        colnames : {seq of strings, None}
-            If not None, these are the names of the columns, each
-            corresponding to one element in 'hypercubes'. Exactly as
-            many column names must be provided as there are members in
-            'hypercubes'. If None, generic column names will be
-            assigned (col00, col01, etc.)
-
-        paramnames : {seq of strings, None}
-            If not None, these are the names of the matched
-            parameters, each corresponding to one axis of a
-            hypercube. Exactly as many parameter names must be
-            provided as there are axes in a hypercube. If None,
-            parameter names will be param0, param1, etc.
-
-        xcol : {1-d array, None}
-            If not None, this is the dependent variable, and will be
-            stored as well. Useful for n-dim interpolation of the
-            hypercubes. If None, no x-array will be stored in the HDF5
-            file.
-
-        xcolname : str
-            Only used if xcol is not None. xcol will be saved under
-            this name (default is 'xcol').
-
-        """
-
-        self.groupname = groupname
-        self.hypercubes = hypercubes
-        self.theta = theta
-        self.colnames = colnames
-        self.xcol = xcol
-        self.xcolname = xcolname
-        self.paramnames = paramnames
-
-        self.open_file()     # try to open HDF5 file in append mode (or create new if it doesn't exist yet)
-        self.create_group()  # if opened successfully, test of group already exists
-        self.store()         # store everything
-        self.close_file()
-
-        print "All data stored and file %s closed properly." % self.fname
+    def __init__(self,dic=None):
+        if dic is not None:
+            try:
+                for k,v in dic.items():
+                    setattr(self,k,v)
+            except:
+                raise
 
 
-    def open_file(self):
 
-        try:
-            self.hout = h5py.File(self.fname,'a')
-        except:
-            print "Problem either creating or opening output file %s in 'append' mode." % self.fname
-            raise Exception
-
-
-    def close_file(self):
-
-        try:
-            self.hout.close()
-        except:
-            print "Problem closing HDF5 file %s. Was it open?" % self.fname
-            raise Exception
-
-
-    def create_group(self):
-
-        try:
-            self.group = self.hout.create_group(self.groupname)
-        except ValueError:
-            raise Exception, "Group %s already exists. Chose a different group name, or delete existing group first." % self.groupname
-
-
-    def store(self): #,fname,xcol=None,axesnames=None,group=None
-
-        # store hypercubes
-        for j,cube in enumerate(self.hypercubes):
-            name = self.colnames[j]
-            print "Storing hypercube %s..." % name
-            dset = self.group.create_dataset(name,data=cube,dtype='float32')  # explicitly 4-bit to save storage and RAM
-                
-        # store theta
-        print "Storing theta..."
-        dset = self.group.create_dataset('theta',data=self.theta,dtype='float64')  # 2-d nan-padded array
-
-#numpy bug [2190]        dflt = h5py.special_dtype(vlen=N.dtype('float64'))
-#numpy bug [2190]        print "Storing theta..."
-#numpy bug [2190]
-#numpy bug [2190]
-#numpy bug [2190]
-#numpy bug [2190]#        dset = self.group.create_dataset('theta',data=self.theta, dtype=dflt)
-#numpy bug [2190]
-#numpy bug [2190]        # need to store the ragged array 'theta' member-by-member, b/c it fails in one go, i.e.
-#numpy bug [2190]        #   dset = self.group.create_dataset('theta',data=self.theta, dtype=dflt)
-#numpy bug [2190]        # presumably due to a bug in h5py.
-#numpy bug [2190]        dset = self.group.create_dataset('theta', (len(self.theta),), dtype=dflt)
-#numpy bug [2190]        print "len(self.theta), len(dset), dset.shape, dset.size = ", len(self.theta), len(dset), dset.shape, dset.size
-#numpy bug [2190]        for j,e in enumerate(self.theta):
-#numpy bug [2190]            
-#numpy bug [2190]            print "j, e, type(e), e.dtype: ", j, e, type(e), e.dtype
-#numpy bug [2190]            print "dset[j] :", dset[j]
-#numpy bug [2190]            dset[j] = e[...]
-#numpy bug [2190]            print "dset[j] :", dset[j]
-#numpy bug [2190]            print 
-
-        # store xcol, if provided
-        if self.xcol is not None:
-            print "Storing xcol as '%s'..." % self.xcolname
-            dset = self.group.create_dataset(self.xcolname,data=self.xcol,dtype='float64')  # 8-bit, since this is often wavelength (need accuracy)
-
-        # store colnames as a list, to know their order
-        dset = self.group.create_dataset('colnames',data=self.colnames)
-
-        # store parameter names as a list
-        dset = self.group.create_dataset('paramnames',data=self.paramnames)
+#TMPclass Storage:
+#TMP
+#TMP    def __init__(self,fname):
+#TMP
+#TMP        """Store data to an HDF5 file.
+#TMP
+#TMP        Store a list of hypercubes, an x-column, theta arrays, and
+#TMP        column names, to an HDF5 file.
+#TMP
+#TMP        Parameters
+#TMP        ----------
+#TMP        fname : str
+#TMP            Path to HDF5 output file. If file exists, we'll try to
+#TMP            open it in append mode. Otherwise we'll try to create the
+#TMP            file.
+#TMP
+#TMP        Usage
+#TMP        -----
+#TMP        Instantiate the Storage class by providing the path to the
+#TMP        HDF5 file. Please read the docstrings of __call__() for the
+#TMP        storage syntax.
+#TMP
+#TMP        """
+#TMP
+#TMP        self.fname = fname
+#TMP
+#TMP
+#TMP#    def __call__(self,groupname,hypercubes,theta,colnames,paramnames,xcol=None,xcolname='xcol'):
+#TMP#    def __call__(self,groupname,props):  # props is a dict
+#TMP    def __call__(self,groupname,attrs):  # props is a dict
+#TMP
+#TMP        """
+#TMP        S = Storage(fname)
+#TMP        S('hypercubes',
+#TMP
+#TMP
+#TMP
+#TMP        Perform the storage to HDF5 file.
+#TMP
+#TMP        A call opens the hdfile, creates a group, stores all data in
+#TMP        to the group, and closes the file. A new call with the same
+#TMP        HDF5 file name can store another set of data in a different
+#TMP        group, but in the same file.
+#TMP
+#TMP        Parameters
+#TMP        ----------
+#TMP        groupname : str
+#TMP            All data will be stored under this group name. Examples:
+#TMP               group='models'
+#TMP               group='libraryXYZ'
+#TMP               group='/librayA/sublibraryB7'
+#TMP    
+#TMP            This group must not exist yet in the output file.
+#TMP
+#TMP        hypercubes : list
+#TMP            List of n-dimensional arrays to store in the HDF5
+#TMP            file. All must have the same shape.
+#TMP
+#TMP        theta : array
+#TMP            Variable-length array of 1-d arrays, each containing the
+#TMP            unique and sorted values of a single model parameter
+#TMP            (corresponding to one of the axes of the hypercubes). E.g.
+#TMP               
+#TMP                theta = array( array(1,2,3), array(0.1,0.4,0.9,1.8), array(-3,1.3,123.) )
+#TMP
+#TMP        colnames : {seq of strings, None}
+#TMP            If not None, these are the names of the columns, each
+#TMP            corresponding to one element in 'hypercubes'. Exactly as
+#TMP            many column names must be provided as there are members in
+#TMP            'hypercubes'. If None, generic column names will be
+#TMP            assigned (col00, col01, etc.)
+#TMP
+#TMP        paramnames : {seq of strings, None}
+#TMP            If not None, these are the names of the matched
+#TMP            parameters, each corresponding to one axis of a
+#TMP            hypercube. Exactly as many parameter names must be
+#TMP            provided as there are axes in a hypercube. If None,
+#TMP            parameter names will be param0, param1, etc.
+#TMP
+#TMP        xcol : {1-d array, None}
+#TMP            If not None, this is the dependent variable, and will be
+#TMP            stored as well. Useful for n-dim interpolation of the
+#TMP            hypercubes. If None, no x-array will be stored in the HDF5
+#TMP            file.
+#TMP
+#TMP        xcolname : str
+#TMP            Only used if xcol is not None. xcol will be saved under
+#TMP            this name (default is 'xcol').
+#TMP
+#TMP        """
+#TMP
+#TMP        self.groupname = groupname
+#TMP        self.props = props
+#TMP        
+#TMP#        self.hypercubes = hypercubes
+#TMP#        self.theta = theta
+#TMP#        self.colnames = colnames
+#TMP#        self.xcol = xcol
+#TMP#        self.xcolname = xcolname
+#TMP#        self.paramnames = paramnames
+#TMP
+#TMP        self.open_file()     # try to open HDF5 file in append mode (or create new if it doesn't exist yet)
+#TMP        self.group = self.create_group(self.groupname)  # if opened successfully, test of group already exists
+#TMP        self.store()         # store everything
+#TMP        self.close_file()
+#TMP
+#TMP        print "All data stored and file %s closed properly." % self.fname
+#TMP
+#TMP
+#TMP    def open_file(self):
+#TMP
+#TMP        try:
+#TMP            self.hout = h5py.File(self.fname,'a')
+#TMP        except:
+#TMP            print "Problem either creating or opening output file %s in 'append' mode." % self.fname
+#TMP            raise Exception
+#TMP
+#TMP
+#TMP    def close_file(self):
+#TMP
+#TMP        try:
+#TMP            self.hout.close()
+#TMP        except:
+#TMP            print "Problem closing HDF5 file %s. Was it open?" % self.fname
+#TMP            raise Exception
+#TMP
+#TMP
+#TMP    def create_group(self,groupname):
+#TMP
+#TMP        try:
+#TMP#            self.group = self.hout.create_group(self.groupname)
+#TMP            group = self.hout.create_group(groupname)
+#TMP        except ValueError:
+#TMP            raise Exception, "Group %s already exists. Chose a different group name, or delete existing group first." % self.groupname
+#TMP
+#TMP        return group
+#TMP        
+#TMP
+#TMP    def store(self): #,fname,xcol=None,axesnames=None,group=None
+#TMP
+#TMP        """TODO:
+#TMP
+#TMP        If v is a list, check v[0] for type.
+#TMP        If v[0] is another list, or tuple, or ndarray:
+#TMP          make k-group kg
+#TMP          for elem in v, store a dataset as k/elem
+#TMP
+#TMP        If v[0] is an atomic type (int, float, str, etc.), store v as
+#TMP        dataset right under self.group/k = v
+#TMP
+#TMP
+#TMP        self.props = {'hypercubes':[array(),array()],
+#TMP                      'Nparam': 9,
+#TMP                      'theta': [array(),array(),...]  or 'theta': array(n,m),
+#TMP                      'paramnames': ['a','bee','cee']}
+#TMP
+#TMP        """
+#TMP        
+#TMP        for k,v in self.props.items():
+#TMP            if isinstance(v,(list,tuple)):
+#TMP                if isinstance(v[0],ndarray):
+#TMP                    if v[0].ndim == 1:
+#TMP                        pass
+#TMP                    else:
+#TMP                        # save as 
+#TMP
+#TMP                type(v[0]) in (ndarray,list,tuple):
+#TMP                    group = self.create_group(self.groupname + '/' + k)
+#TMP                    for v_ in v:
+#TMP                        dset = group.create_dataset( + name,data=cube,dtype='float32')  # explicitly 4-bit to save storage and RAM
+#TMP
+#TMP        
+#TMP        # store hypercubes
+#TMP        for j,cube in enumerate(self.hypercubes):
+#TMP            name = self.colnames[j]
+#TMP            print "Storing hypercube %s..." % name
+#TMP            dset = self.group.create_dataset(name,data=cube,dtype='float32')  # explicitly 4-bit to save storage and RAM
+#TMP                
+#TMP        # store theta
+#TMP        print "Storing theta..."
+#TMP        dset = self.group.create_dataset('theta',data=self.theta,dtype='float64')  # 2-d nan-padded array
+#TMP
+#TMP#numpy bug [2190]        dflt = h5py.special_dtype(vlen=N.dtype('float64'))
+#TMP#numpy bug [2190]        print "Storing theta..."
+#TMP#numpy bug [2190]
+#TMP#numpy bug [2190]
+#TMP#numpy bug [2190]
+#TMP#numpy bug [2190]#        dset = self.group.create_dataset('theta',data=self.theta, dtype=dflt)
+#TMP#numpy bug [2190]
+#TMP#numpy bug [2190]        # need to store the ragged array 'theta' member-by-member, b/c it fails in one go, i.e.
+#TMP#numpy bug [2190]        #   dset = self.group.create_dataset('theta',data=self.theta, dtype=dflt)
+#TMP#numpy bug [2190]        # presumably due to a bug in h5py.
+#TMP#numpy bug [2190]        dset = self.group.create_dataset('theta', (len(self.theta),), dtype=dflt)
+#TMP#numpy bug [2190]        print "len(self.theta), len(dset), dset.shape, dset.size = ", len(self.theta), len(dset), dset.shape, dset.size
+#TMP#numpy bug [2190]        for j,e in enumerate(self.theta):
+#TMP#numpy bug [2190]            
+#TMP#numpy bug [2190]            print "j, e, type(e), e.dtype: ", j, e, type(e), e.dtype
+#TMP#numpy bug [2190]            print "dset[j] :", dset[j]
+#TMP#numpy bug [2190]            dset[j] = e[...]
+#TMP#numpy bug [2190]            print "dset[j] :", dset[j]
+#TMP#numpy bug [2190]            print 
+#TMP
+#TMP        # store xcol, if provided
+#TMP        if self.xcol is not None:
+#TMP            print "Storing xcol as '%s'..." % self.xcolname
+#TMP            dset = self.group.create_dataset(self.xcolname,data=self.xcol,dtype='float64')  # 8-bit, since this is often wavelength (need accuracy)
+#TMP
+#TMP        # store colnames as a list, to know their order
+#TMP        dset = self.group.create_dataset('colnames',data=self.colnames)
+#TMP
+#TMP        # store parameter names as a list
+#TMP        dset = self.group.create_dataset('paramnames',data=self.paramnames)
 
        
 
