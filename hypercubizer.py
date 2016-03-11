@@ -1,9 +1,7 @@
 """Find template-based model files, read columns, convert them to n-dim hypercubes, store as HDF5.
 """
 
-import os
-import re
-import warnings
+import os, sys, re, warnings
 import numpy as N
 import h5py
 from externals.padarray import padarray
@@ -11,18 +9,21 @@ import pyfits
 import filefuncs
 
 __author__ = "Robert Nikutta <robert.nikutta@gmail.com>"
-__version__ = "20160309"
+__version__ = "20160310"
 
 # TODO: add simple logging
-
 
 class Hypercubes:
 
     def __init__(self,rootdir,pattern,hypercubenames=None,func='asciitable',**kwargs):
 
+        mykwargs = kwargs
+        mykwargs['hypercubenames'] = hypercubenames
+        
         self.hypercubenames = hypercubenames
         self.func = getattr(filefuncs,func)
-
+        self.funcname = self.func.func_name
+        
         # regex pattern, number of values, extracted parameter names (if any)
         self.pattern, self.Nparam, self.paramnames = get_pattern_and_paramnames(pattern)
 
@@ -38,13 +39,11 @@ class Hypercubes:
         theta_strings, self.theta, self.hypercubeshape = get_uniques(self.matched_values,returnnumerical=True)
 
         # return hypercubes, but also update: theta, paramnames
-#        self.hypercubes = self.convert(self.matched_files,self.matched_values,filereadfunc=self.func,**kwargs)
-        self.hypercubes = self.convert(self.matched_files,self.matched_values,**kwargs)
+        self.hypercubes = self.convert(self.matched_files,self.matched_values,**mykwargs)
 
         # As described in issue #5 on bitbucket, we need to work
         # around a numpy and/or h5py bug. That's why we nan-pad
         # self.theta, and store as a regular 2-d array (self.theta.pad)
-        print "self.theta before PadArray = ", self.theta
         self.theta = padarray.PadArray(self.theta)  # has members .pad (2-d array) and .unpad (list of 1-d arrays)
 
         self.sanity()
@@ -95,17 +94,15 @@ class Hypercubes:
         """
 
         # check in the first files how many rows there are to read
-        print "In convert: kwargs = ", kwargs
-        datasets, axnames, axvals = self.func(files[0],**kwargs)  # kwargs are: cols, e.g.: cols=(0,(1,2,3)), xcol are the values of the column given by kwarg 'xcol'
+        datasets, axnames, axvals, hypercubenames = self.func(files[0],**kwargs)  # kwargs are: cols, e.g.: cols=(0,(1,2,3)), xcol are the values of the column given by kwarg 'xcol'
 
+        self.hypercubenames = hypercubenames
+        
         # how many cubes?
         self.Nhypercubes = len(datasets)
 
         # one dataset has hoe many dimensions?
         ndim = datasets[0].ndim
-
-        print "In convert: axnames = ", axnames
-        print "In convert: axvals = ", axvals
 
         self.axnames = axnames
         self.axvals = axvals
@@ -116,9 +113,6 @@ class Hypercubes:
         if self.axvals is None:
             self.axvals = [N.arange(axissize) for axissize in datasets[0].shape] # this explictly assumes that all datasets are of same shape!
             
-        print "AFTER: In convert: self.axnames = ", self.axnames
-        print "AFTER: In convert: self.axvals = ", self.axvals
-
         # extend hypercube shape by whatever the returned shape of datasets is
         self.hypercubeshape = self.hypercubeshape + list(datasets[0].shape)
 
@@ -130,18 +124,18 @@ class Hypercubes:
         nvalues = float(len(values))
 
         # LOOP OVER GOOD FILES
+        print "Converting matched models to hypercubes"
         for ivalue,value in enumerate(values):
 
             f = files[ivalue]
 
-            if ivalue % 100 == 0:
-                print "Working on model %d of %d, %.3f%%" % (ivalue+1,nvalues,100*(ivalue+1)/nvalues)
+            progressbar(ivalue,nvalues,"Working on model")
 
             # find 5-dim location in the fluxes hypercube for this particular model
             pos = [N.argwhere(self.theta[j]==float(e)).item() for j,e in enumerate(value)]
             pos.append(Ellipsis)  # this adds as many dimensions as necessary
 
-            datasets, axnames, axvals = self.func(f,**kwargs)  # kwargs are: cols, e.g.: cols=(0,(1,2,3))
+            datasets, axnames, axvals, hypercubenames = self.func(f,**kwargs)  # kwargs are: cols, e.g.: cols=(0,(1,2,3))
             
             # store the read datasets (iy) into the appropriate hypercubes, in the determined N-dim index 'pos'.
             for iy in xrange(len(hypercubes)):
@@ -186,7 +180,9 @@ class Hypercubes:
         """
         
         def store_attrs(groupname,obj,attrs):
-            group = hdfout.create_group(groupname)
+
+            group = hdfout.require_group(groupname)
+            
             for attr in attrs:
                 print "    Storing attribute: ", attr
 
@@ -204,6 +200,7 @@ class Hypercubes:
                 except TypeError:
                     dataset = group.create_dataset(attr,data=value,dtype=dtype)
 
+                        
         # default hdf5 file name
         if filename is None:
             filename = os.path.split(self.rootdir)[-1]
@@ -217,14 +214,14 @@ class Hypercubes:
         if not hdffile.endswith('.hdf5'):
             hdffile = hdffile + '.hdf5'
 
-        print "\n\n### STORING RESUTLS TO HDF5 FILE ###"
+        print "Storing results to hdf5 file"
         print "File: %s" % hdffile
 
         # open file for appending; creates it if file doesn't exist yet
         hdfout = h5py.File(hdffile,'a')
                     
         # store all common metadata
-        attrs = ('pattern','rootdir','Nhypercubes','Nparam','hypercubenames','hypercubeshape','paramnames')
+        attrs = ('pattern','rootdir','Nhypercubes','Nparam','hypercubenames','hypercubeshape','paramnames','funcname')
         store_attrs(groupname,self,attrs)                    
 
         # make a temporary object instance to hold the hypercubes
@@ -235,7 +232,7 @@ class Hypercubes:
         attrs = self.hypercubenames
         store_attrs(group,obj,attrs)
 
-        print "CLOSING HDF5 FILE"
+        print "Closing hdf5 file."
         hdfout.close()
 
         
@@ -483,6 +480,15 @@ class DictToObject:
 # STAND-ALONE FUNCTIONS
 # They could be useful outside of the scope of hypercubizer.
 
+def progressbar(i,n,prefix="",suffix=""):
+    
+    sys.stdout.write("\r%s %d of %d (%.1f percent) %s" % (prefix,i+1,n,((i+1)*100/float(n)),suffix))
+    sys.stdout.flush()
+                
+    if i == n-1:
+        print "\n"
+
+
 def get_pattern_and_paramnames(examplefile):
 
     """Extract regex matchig pattern and (optinally) the parameter names
@@ -641,7 +647,6 @@ def get_uniques(values,returnnumerical=True):
     shape = [u.size for u in uniques]
 
     if returnnumerical == True:
-#        uniques_float = [e.astype('float64') for e in uniques]
         uniques_float = [ N.sort(e.astype('float64')) for e in uniques ]
         return uniques, uniques_float, shape
     else:
@@ -741,12 +746,12 @@ def match_pattern_to_strings(strings,\
     # Try to match each file name to the pattern. Extract parameter
     # values from matching file names. Ignore file names that don't
     # match the pattern.
+    print "Matching file names to pattern"
     for j,s in enumerate(strings):
         
         if progress == True:
-            if j % progress_step == 0:
-                print "Working on file %d of %d" % (j,n)
-
+            progressbar(j,n,"Working on model")
+                
         if op is not None:
             try:
                 arg = op(s)  # operation 'op' is given by the user. For instance, this could be os.path.basename(s)
