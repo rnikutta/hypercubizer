@@ -219,11 +219,18 @@ class Hypercubes:
 
         # open file for appending; creates it if file doesn't exist yet
         hdfout = h5py.File(hdffile,'a')
-                    
+
+        
         # store all common metadata
         attrs = ('pattern','rootdir','Nhypercubes','Nparam','hypercubenames','hypercubeshape','paramnames','funcname')
-        store_attrs(groupname,self,attrs)                    
+        store_attrs(groupname,self,attrs)
 
+        # store theta
+        obj = DictToObject({'theta':self.theta.pad})
+        attrs = ('theta',)
+        store_attrs(groupname,obj,attrs)
+
+        
         # make a temporary object instance to hold the hypercubes
         obj = DictToObject( dict(zip((self.hypercubenames),(self.hypercubes))) )
 
