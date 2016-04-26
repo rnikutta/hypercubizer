@@ -9,7 +9,7 @@ import pyfits
 import filefuncs
 
 __author__ = "Robert Nikutta <robert.nikutta@gmail.com>"
-__version__ = "20160310"
+__version__ = "20160426"
 
 # TODO: add simple logging
 
@@ -31,7 +31,7 @@ class Hypercubes:
 
         # get a list of all files under rootdir
         files = get_files_in_dir(self.rootdir,verbose=False,returnsorted=True)
-
+        
         # match all files to pattern, keep only the matching ones, and a list of matched numerical values
         self.matched_files, self.matched_values = match_pattern_to_strings(files,pattern=self.pattern,op=os.path.basename,progress=True)
 
@@ -119,7 +119,7 @@ class Hypercubes:
 
         # prepare a list of n-dimensional hypercubes to hold the
         # re-shaped column data (one hypercube per column read)
-        hypercubes = [N.zeros(shape=self.hypercubeshape) for j in xrange(self.Nhypercubes)] # careful not to reference the same physical array n times
+        hypercubes = [N.zeros(shape=self.hypercubeshape,dtype=N.float32) for j in xrange(self.Nhypercubes)] # careful not to reference the same physical array n times
 
         nvalues = float(len(values))
 
