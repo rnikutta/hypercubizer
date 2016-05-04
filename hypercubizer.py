@@ -9,13 +9,164 @@ import pyfits
 import filefuncs
 
 __author__ = "Robert Nikutta <robert.nikutta@gmail.com>"
-__version__ = "20160426"
+__version__ = "20160504"
 
 # TODO: add simple logging
 
+class HdfFile:
+    
+    def __init__(self,hdffile,mode='a'):
+
+        self.hdffile = hdffile
+        self.mode = mode
+
+        self.open()
+
+        
+    def open(self):
+
+        try:
+            self.hdf = h5py.File(self.hdffile,self.mode)
+        except:
+            print "Problem opening HDF5 file %s with mode %s" % (self.hdffile,self.mode)
+            raise
+
+        
+    def close(self):
+
+        try:
+            self.hdf.close()
+        except:
+            print "Problem closing HDF5 file %s" % self.hdffile
+
+            
+    def provide_dataset(self,name,shape,dtype='float32'):
+
+        """Open a dataset (possibly in a group), and return the handle.
+
+        Parameters:
+        -----------
+
+        name : str
+            Full name qualifier for the dataset within the HDF5 file
+            hierarchy. Can be the leaf on a tree. Example:
+
+            name = 'foo'
+            name = '/foo'
+            name = 'group1/group2/foo'
+
+        """
+        
+        # create dataset
+        try:
+            dataset = self.hdf.require_dataset(name, shape=shape, dtype=dtype, compression='gzip',compression_opts=9)
+        except TypeError:
+            print "Dataset %s already exists or is incompatible with 'shape' and/or 'dtype'. Exiting."
+            dataset = self.hdf.require_dataset(name, shape=shape, dtype=dtype)
+
+        return dataset
+
+
+    def store_attrs(self,groupname,obj,attrs):
+
+        """Store attributes of an object as datasets within a group in the hdf5 file.
+
+        Parameters:
+        -----------
+
+        groupname : str
+            Name of the group in the hdf5 file. If the group already
+            exists, it will be opened for access. Otherwise it will be
+            created.
+
+        obj : instance
+            An object whose members (at least some of them) are
+            supposed to be saved to the group. For example:
+            obj.attribute1, obj.foobar, etc.
+
+        attrs : seq of strings
+            The sequence of attribute names of obj, which should be
+            stored in the hdf5 file (under groupname). Only the
+            attributes listed in 'attrs' will be stored.
+
+        """
+        
+        print "Groupname: ", groupname
+        group = self.hdf.require_group(groupname)
+        
+        for attr in attrs:
+            print "    Attribute: ", attr
+
+            if attr in self.hdf[groupname]:
+                print "    Dataset '%s' already exists in group '%s'. Not touching it, continuing." % (attr,groupname)
+                
+            else:
+                value = getattr(obj,attr)
+
+                # force reduced data size (4-byte 32-bit floats) for floating point arrays with more than one dimension
+                if isinstance(value,N.ndarray) and value.ndim > 1:
+                    dtype = N.float32
+                else:
+                    dtype = None
+
+                # create dataset
+                try:
+                    dataset = group.create_dataset(attr,data=value,compression='gzip',compression_opts=9,dtype=dtype)
+                except TypeError:
+                    dataset = group.create_dataset(attr,data=value,dtype=dtype)
+    
+    
 class Hypercubes:
 
-    def __init__(self,rootdir,pattern,hypercubenames=None,func='asciitable',**kwargs):
+    def __init__(self,rootdir,pattern,hdffile,mode='ram',memgigs=2.,hypercubenames=None,func='asciitable',**kwargs):
+
+        """Parameters:
+        -----------
+
+        rootdir : str
+            Path to the top-level directory holding the files to be
+            read.
+
+        pattern : str
+            File name pattern to match. See
+            get_pattern_and_paramnames() docstring for details.
+
+        hdffile : str
+            The hdf5 output file name where to store the hypercubes
+            and meta information.
+
+        mode : str
+            Either 'ram' (default) or 'disk'. Determines whether
+            hypercubes will be first built in RAM and then stored to
+            file in a final flush, or directly in an opened HDF5 file
+            (on disk). In 'ram' mode the creation is faster, but
+            limited by the available RAM on the system (but see
+            'memgigs'). 'disk' mode is slower, but the RAM usage is
+            negligible.
+
+        memgigs : float
+            If mode is 'ram', then 'memgigs' is the total size of RAM
+            (in GB) that the system is allowed to use to create the
+            hypercubes in-memory. Default is 2 GB. The total size of
+            RAM to be used is estimated before creating the
+            hypercubes. If it exceeds 'memgigs', an exception is
+            raised. Note that no checks are performed about
+            available/free RAM, so please use with caution.
+
+        hypercubenames : seq of strings
+            A list of names for the hypercubes to be stored.
+
+        func : str
+            The name of the function that will read individual files
+            in rootdir. The function should be provided in file
+            filefuncs.py
+
+        """
+
+        self.hdffile = hdffile
+        self.hdf = HdfFile(self.hdffile,mode='a')
+        self.mode = mode
+        self.memgigs = memgigs
 
         mykwargs = kwargs
         mykwargs['hypercubenames'] = hypercubenames
@@ -26,7 +177,7 @@ class Hypercubes:
         
         # regex pattern, number of values, extracted parameter names (if any)
         self.pattern, self.Nparam, self.paramnames = get_pattern_and_paramnames(pattern)
-
+        
         self.rootdir = rootdir
 
         # get a list of all files under rootdir
@@ -40,15 +191,21 @@ class Hypercubes:
 
         # return hypercubes, but also update: theta, paramnames
         self.hypercubes = self.convert(self.matched_files,self.matched_values,**mykwargs)
-
+        
         # As described in issue #5 on bitbucket, we need to work
         # around a numpy and/or h5py bug. That's why we nan-pad
         # self.theta, and store as a regular 2-d array (self.theta.pad)
         self.theta = padarray.PadArray(self.theta)  # has members .pad (2-d array) and .unpad (list of 1-d arrays)
 
+
+        self.store2hdf()
+        
         self.sanity()
 
+        print "Closing hdf5 file."
+        self.hdf.close()
 
+                
     def sanity(self):
         
         assert (len(set([h.shape for h in self.hypercubes])) == 1), "Not all cubes in 'hypercubes' have the same shape."
@@ -119,8 +276,18 @@ class Hypercubes:
 
         # prepare a list of n-dimensional hypercubes to hold the
         # re-shaped column data (one hypercube per column read)
-        hypercubes = [N.zeros(shape=self.hypercubeshape,dtype=N.float32) for j in xrange(self.Nhypercubes)] # careful not to reference the same physical array n times
-
+        if self.mode == 'ram':
+            ramneeded = self.Nhypercubes * N.prod(self.hypercubeshape) * 4. / 1024.**3  # dataset size in GB, assuming float32
+            print "self.memgigs, ramneeded = ", self.memgigs, ramneeded
+            assert (ramneeded <= self.memgigs),\
+                "Mode 'ram' selected. Required RAM (%.3f) exceeds permitted RAM (%.3f). Check 'memgigs' parameter, or use mode='disk'." % (ramneeded,self.memgigs)
+            
+            # careful not to reference the same physical array n times
+            hypercubes = [N.zeros(shape=self.hypercubeshape,dtype=N.float32) for j in xrange(self.Nhypercubes)]
+        
+        elif self.mode == 'disk':
+            hypercubes = [self.hdf.provide_dataset(self.hypercubenames[j]+'/hypercube',self.hypercubeshape,dtype='float32') for j in xrange(self.Nhypercubes)]
+            
         nvalues = float(len(values))
 
         # LOOP OVER GOOD FILES
@@ -132,15 +299,16 @@ class Hypercubes:
             progressbar(ivalue,nvalues,"Working on model")
 
             # find 5-dim location in the fluxes hypercube for this particular model
+            #TODO: use numpy's multi-dim indexing
             pos = [N.argwhere(self.theta[j]==float(e)).item() for j,e in enumerate(value)]
             pos.append(Ellipsis)  # this adds as many dimensions as necessary
-
+            pos = tuple(pos)
+            
             datasets, axnames, axvals, hypercubenames = self.func(f,**kwargs)  # kwargs are: cols, e.g.: cols=(0,(1,2,3))
             
             # store the read datasets (iy) into the appropriate hypercubes, in the determined N-dim index 'pos'.
             for iy in xrange(len(hypercubes)):
                 hypercubes[iy][pos] = datasets[iy]
-
 
         # extend list of parameter names by the axes of a single dataset
         self.paramnames = self.paramnames + list(self.axnames)
@@ -155,92 +323,41 @@ class Hypercubes:
         return hypercubes
 
 
-    def store2hdf(self,filename=None,groupname=None): # e.g. filename='foo.hdf', groupname='imgdata'
+    def store2hdf(self):
 
-        """Store attribiutes of self to an hdf5 file.
+        """Store attributes of self to an hdf5 file.
 
-        Parameters:
-        -----------
-        filename: None or str
-            If None, a default string name will be computed as the
-            tail of self.rootdir (plus hdf5 extension). If not None,
-            filename is the name of the hdf5 output file. If filename
-            does not end with '.hdf5', this suffix will be added.
+        Each hypercube will be stored as '/groupname/hypercube', where
+        groupname is the name of the hypercube. Attributes common to
+        all hypercubes will be stored in the top-level root group.
 
-        groupname : None or str
-            The name of the top-level group in the hdf5 file to write
-            the output to. If None, the root group will simply be '/'.
-
-        Examples:
-        ---------
-
-        # After computing H...
-        H.store2hdf(filename='foo.hdf5',grouname='mynicemodels')
+        This func is called in __init__() after the hypercubes have
+        been created.
 
         """
         
-        def store_attrs(groupname,obj,attrs):
+        # root; contains attributes common to all hypercubes
+        groupname = '/'
+        attrs = ('pattern','rootdir','Nhypercubes','hypercubenames')
+        self.hdf.store_attrs(groupname,self,attrs)
 
-            group = hdfout.require_group(groupname)
+        # every hypercube gets a group
+        for j,groupname in enumerate(self.hypercubenames):
             
-            for attr in attrs:
-                print "    Storing attribute: ", attr
+            attrs = ('Nparam','hypercubeshape','paramnames','funcname')
+            self.hdf.store_attrs(groupname,self,attrs)
 
-                value = getattr(obj,attr)
+            # store theta
+            obj = DictToObject({'theta':self.theta.pad})
+            attrs = ('theta',)
+            self.hdf.store_attrs(groupname,obj,attrs)
+            
+            # make a temporary object instance to hold the hypercubes
+            obj = DictToObject( {'hypercube':self.hypercubes[j]} )
 
-                # force reduced data size (4-byte 32-bit floats) for floating point arrays with more than one dimension
-                if isinstance(value,N.ndarray) and value.ndim > 1:
-                    dtype = N.float32
-                else:
-                    dtype = None
-
-                # create dataset
-                try:
-                    dataset = group.create_dataset(attr,data=value,compression='gzip',compression_opts=9,dtype=dtype)
-                except TypeError:
-                    dataset = group.create_dataset(attr,data=value,dtype=dtype)
-
-                        
-        # default hdf5 file name
-        if filename is None:
-            filename = os.path.split(self.rootdir)[-1]
-
-        # default top-level group name
-        if groupname is None:
-            groupname = '/'
-
-        # construct the hdf5 file name (path and file name)
-        hdffile = os.path.join(self.rootdir,filename)
-        if not hdffile.endswith('.hdf5'):
-            hdffile = hdffile + '.hdf5'
-
-        print "Storing results to hdf5 file"
-        print "File: %s" % hdffile
-
-        # open file for appending; creates it if file doesn't exist yet
-        hdfout = h5py.File(hdffile,'a')
-
-        
-        # store all common metadata
-        attrs = ('pattern','rootdir','Nhypercubes','Nparam','hypercubenames','hypercubeshape','paramnames','funcname')
-        store_attrs(groupname,self,attrs)
-
-        # store theta
-        obj = DictToObject({'theta':self.theta.pad})
-        attrs = ('theta',)
-        store_attrs(groupname,obj,attrs)
-
-        
-        # make a temporary object instance to hold the hypercubes
-        obj = DictToObject( dict(zip((self.hypercubenames),(self.hypercubes))) )
-
-        # store all hypercubes to a sub-group (called 'hypercubes') of the top-level group
-        group = groupname + '/hypercubes'
-        attrs = self.hypercubenames
-        store_attrs(group,obj,attrs)
-
-        print "Closing hdf5 file."
-        hdfout.close()
+            # store all hypercubes to a sub-group (called 'hypercubes') of the top-level group
+            attrs = ('hypercube',)
+            self.hdf.store_attrs(groupname,obj,attrs)
 
         
 class DictToObject:

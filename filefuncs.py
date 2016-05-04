@@ -99,11 +99,14 @@ def fitsfile_clumpy(filename,ext=None,header=True,**kwargs):
     # derive properties from header and from additional user-supplied kwargs, if any
     x = N.arange(header['NAXIS1'])
     y = N.arange(header['NAXIS2'])
-    wave = N.array([v for k,v in header.items() if k.startswith('LAMB')])
-
+    axnames = ['x','y']
+    axvals = [x,y]
+    if 'NAXIS3' in header:
+        wave = N.array([v for k,v in header.items() if k.startswith('LAMB')])
+        axnames.append('wave')
+        axvals.append(wave)
+        
     datasets = [dataset]  # has to be a list for function 'convert'
-    axnames = ['x','y','wave']
-    axvals = [x,y,wave]
     hypercubenames = kwargs['hypercubenames']
     
     return datasets, axnames, axvals, hypercubenames
