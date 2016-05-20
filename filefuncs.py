@@ -49,6 +49,9 @@ def asciitable(filename,cols=(1,),xcol=None,xcolname=None,hypercubenames=None,**
     if type(cols) is int:
         cols = (cols,)
 
+    if isinstance(xcolname,str):
+        xcolname = (xcolname,)
+
     # list(.) unpacks the unknown number of returned columns into a list
     datasets = list(N.loadtxt(filename,usecols=cols,unpack=True))
 
@@ -58,7 +61,7 @@ def asciitable(filename,cols=(1,),xcol=None,xcolname=None,hypercubenames=None,**
             
         xcol = N.loadtxt(filename,usecols=xcol,unpack=True)
 
-    return datasets, xcolname, xcol, hypercubenamess
+    return datasets, xcolname, xcol, hypercubenames
 #    return datasets, axnames, axvals, hypercubenames
 
 

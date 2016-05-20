@@ -9,7 +9,7 @@ import pyfits
 import filefuncs
 
 __author__ = "Robert Nikutta <robert.nikutta@gmail.com>"
-__version__ = "20160504"
+__version__ = "201605020"
 
 # TODO: add simple logging
 
@@ -177,6 +177,7 @@ class Hypercubes:
         
         # regex pattern, number of values, extracted parameter names (if any)
         self.pattern, self.Nparam, self.paramnames = get_pattern_and_paramnames(pattern)
+#        print "after get_pattern_and_paramnames: self.Nparam = ", self.Nparam
         
         self.rootdir = rootdir
 
@@ -196,7 +197,6 @@ class Hypercubes:
         # around a numpy and/or h5py bug. That's why we nan-pad
         # self.theta, and store as a regular 2-d array (self.theta.pad)
         self.theta = padarray.PadArray(self.theta)  # has members .pad (2-d array) and .unpad (list of 1-d arrays)
-
 
         self.store2hdf()
         
@@ -278,7 +278,7 @@ class Hypercubes:
         # re-shaped column data (one hypercube per column read)
         if self.mode == 'ram':
             ramneeded = self.Nhypercubes * N.prod(self.hypercubeshape) * 4. / 1024.**3  # dataset size in GB, assuming float32
-            print "self.memgigs, ramneeded = ", self.memgigs, ramneeded
+#            print "self.memgigs, ramneeded = ", self.memgigs, ramneeded
             assert (ramneeded <= self.memgigs),\
                 "Mode 'ram' selected. Required RAM (%.3f) exceeds permitted RAM (%.3f). Check 'memgigs' parameter, or use mode='disk'." % (ramneeded,self.memgigs)
             
@@ -681,7 +681,7 @@ def match_pattern_to_strings(strings,\
     for j,s in enumerate(strings):
         
         if progress == True:
-            progressbar(j,n,"Working on model")
+            progressbar(j,n,"Working on file")
                 
         if op is not None:
             try:
@@ -697,5 +697,7 @@ def match_pattern_to_strings(strings,\
             matched_strings.append(s)
         except AttributeError:
             pass
+
+    print "Successfully matched %d of %s files.\n" % (len(matched_strings),len(strings))
 
     return matched_strings, matched_values
