@@ -9,7 +9,7 @@ import pyfits
 import filefuncs
 
 __author__ = "Robert Nikutta <robert.nikutta@gmail.com>"
-__version__ = "201605020"
+__version__ = "201606003"
 
 # TODO: add simple logging
 
@@ -40,7 +40,7 @@ class HdfFile:
             print "Problem closing HDF5 file %s" % self.hdffile
 
             
-    def provide_dataset(self,name,shape,dtype='float32'):
+    def provide_dataset(self,name,shape,dtype='float32',compression=False):
 
         """Open a dataset (possibly in a group), and return the handle.
 
@@ -57,17 +57,33 @@ class HdfFile:
 
         """
         
-        # create dataset
-        try:
-            dataset = self.hdf.require_dataset(name, shape=shape, dtype=dtype, compression='gzip',compression_opts=9)
-        except TypeError:
-            print "Dataset %s already exists or is incompatible with 'shape' and/or 'dtype'. Exiting."
+#        # create dataset
+#        try:
+##            dataset = self.hdf.require_dataset(name, shape=shape, dtype=dtype, compression='gzip',compression_opts=9)
+#            dataset = self.hdf.require_dataset(name, shape=shape, dtype=dtype)
+#        except TypeError:
+#            print "Dataset %s already exists or is incompatible with 'shape' and/or 'dtype'. Exiting."
+#            dataset = self.hdf.require_dataset(name, shape=shape, dtype=dtype)
+
+
+        if compression is False:
             dataset = self.hdf.require_dataset(name, shape=shape, dtype=dtype)
+        else:
+            dataset = self.hdf.require_dataset(name, shape=shape, dtype=dtype, compression='gzip',compression_opts=9)
 
         return dataset
 
 
-    def store_attrs(self,groupname,obj,attrs):
+    def update_attrs(self,groupname,obj,attr,values):
+
+        print "Groupname: ", groupname
+        group = self.hdf.require_group(groupname)
+
+        for j,attr in enumerate(attrs):
+            print "    Attribute: ", attr
+
+
+    def store_attrs(self,groupname,obj,attrs,compression=False):
 
         """Store attributes of an object as datasets within a group in the hdf5 file.
 
@@ -97,7 +113,8 @@ class HdfFile:
         for attr in attrs:
             print "    Attribute: ", attr
 
-            if attr in self.hdf[groupname]:
+#            if attr in self.hdf[groupname]:
+            if attr in group:
                 print "    Dataset '%s' already exists in group '%s'. Not touching it, continuing." % (attr,groupname)
                 
             else:
@@ -110,15 +127,21 @@ class HdfFile:
                     dtype = None
 
                 # create dataset
-                try:
-                    dataset = group.create_dataset(attr,data=value,compression='gzip',compression_opts=9,dtype=dtype)
-                except TypeError:
+#                try:
+##                    dataset = group.create_dataset(attr,data=value,compression='gzip',compression_opts=9,dtype=dtype)
+#                    dataset = group.create_dataset(attr,data=value,dtype=dtype)
+#                except TypeError:
+#                    dataset = group.create_dataset(attr,data=value,dtype=dtype)
+
+                if compression is False:
                     dataset = group.create_dataset(attr,data=value,dtype=dtype)
-    
+                else:
+                    dataset = group.create_dataset(attr,data=value,compression='gzip',compression_opts=9,dtype=dtype)
+
     
 class Hypercubes:
 
-    def __init__(self,rootdir,pattern,hdffile,mode='ram',memgigs=2.,hypercubenames=None,func='asciitable',**kwargs):
+    def __init__(self,rootdir,pattern,hdffile,mode='ram',memgigs=2.,hypercubenames=None,func='asciitable',compression=False,**kwargs):
 
         """Parameters:
         -----------
@@ -171,7 +194,7 @@ class Hypercubes:
         mykwargs = kwargs
         mykwargs['hypercubenames'] = hypercubenames
         
-        self.hypercubenames = hypercubenames
+#        self.hypercubenames = hypercubenames
         self.func = getattr(filefuncs,func)
         self.funcname = self.func.func_name
         
@@ -191,33 +214,33 @@ class Hypercubes:
         theta_strings, self.theta, self.hypercubeshape = get_uniques(self.matched_values,returnnumerical=True)
 
         # return hypercubes, but also update: theta, paramnames
-        self.hypercubes = self.convert(self.matched_files,self.matched_values,**mykwargs)
+        self.hypercubes = self.convert(self.matched_files,self.matched_values,compression=compression,**mykwargs)
         
         # As described in issue #5 on bitbucket, we need to work
         # around a numpy and/or h5py bug. That's why we nan-pad
         # self.theta, and store as a regular 2-d array (self.theta.pad)
         self.theta = padarray.PadArray(self.theta)  # has members .pad (2-d array) and .unpad (list of 1-d arrays)
 
-        self.store2hdf()
+        self.store2hdf(compression=compression)
         
-        self.sanity()
+#        self.sanity()
 
         print "Closing hdf5 file."
         self.hdf.close()
 
                 
-    def sanity(self):
-        
-        assert (len(set([h.shape for h in self.hypercubes])) == 1), "Not all cubes in 'hypercubes' have the same shape."
+#    def sanity(self):
+#        
+#        assert (len(set([h.shape for h in self.hypercubes])) == 1), "Not all cubes in 'hypercubes' have the same shape."
+#
+#        if self.hypercubenames is not None:
+#            assert (len(self.hypercubenames) == self.Nhypercubes),\
+#                "The number of hypercube names given in 'hypercubenames' (%d) must be equal to the number of hypercubes (%d)." % (len(self.hypercubenames),self.Nhypercubes)
+#        else:
+#            self.hypercubenames = ['hc' + '%02d' % j for j in xrange(self.Nhypercubes)]  # generic hypercube names, if none provided
 
-        if self.hypercubenames is not None:
-            assert (len(self.hypercubenames) == self.Nhypercubes),\
-                "The number of hypercube names given in 'hypercubenames' (%d) must be equal to the number of hypercubes (%d)." % (len(self.hypercubenames),self.Nhypercubes)
-        else:
-            self.hypercubenames = ['hc' + '%02d' % j for j in xrange(self.Nhypercubes)]  # generic hypercube names, if none provided
 
-
-    def convert(self,files,values,**kwargs):
+    def convert(self,files,values,compression=False,**kwargs):
 
         """Load specified columns from all pattern-matched files, and store
         them in a list of n-dimensional hypercubes, each properly shaped
@@ -286,7 +309,8 @@ class Hypercubes:
             hypercubes = [N.zeros(shape=self.hypercubeshape,dtype=N.float32) for j in xrange(self.Nhypercubes)]
         
         elif self.mode == 'disk':
-            hypercubes = [self.hdf.provide_dataset(self.hypercubenames[j]+'/hypercube',self.hypercubeshape,dtype='float32') for j in xrange(self.Nhypercubes)]
+#            hypercubes = [self.hdf.provide_dataset(self.hypercubenames[j]+'/hypercube',self.hypercubeshape,dtype='float32') for j in xrange(self.Nhypercubes)]
+            hypercubes = [self.hdf.provide_dataset(self.hypercubenames[j]+'/hypercube',self.hypercubeshape,dtype='float32',compression=compression) for j in xrange(self.Nhypercubes)]
             
         nvalues = float(len(values))
 
@@ -323,7 +347,7 @@ class Hypercubes:
         return hypercubes
 
 
-    def store2hdf(self):
+    def store2hdf(self,compression=False):
 
         """Store attributes of self to an hdf5 file.
 
@@ -339,25 +363,25 @@ class Hypercubes:
         # root; contains attributes common to all hypercubes
         groupname = '/'
         attrs = ('pattern','rootdir','Nhypercubes','hypercubenames')
-        self.hdf.store_attrs(groupname,self,attrs)
+        self.hdf.store_attrs(groupname,self,attrs,compression=compression)
 
         # every hypercube gets a group
         for j,groupname in enumerate(self.hypercubenames):
             
             attrs = ('Nparam','hypercubeshape','paramnames','funcname')
-            self.hdf.store_attrs(groupname,self,attrs)
+            self.hdf.store_attrs(groupname,self,attrs,compression=compression)
 
             # store theta
             obj = DictToObject({'theta':self.theta.pad})
             attrs = ('theta',)
-            self.hdf.store_attrs(groupname,obj,attrs)
+            self.hdf.store_attrs(groupname,obj,attrs,compression=compression)
             
             # make a temporary object instance to hold the hypercubes
             obj = DictToObject( {'hypercube':self.hypercubes[j]} )
 
             # store all hypercubes to a sub-group (called 'hypercubes') of the top-level group
             attrs = ('hypercube',)
-            self.hdf.store_attrs(groupname,obj,attrs)
+            self.hdf.store_attrs(groupname,obj,attrs,compression=compression)
 
         
 class DictToObject:

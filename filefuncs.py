@@ -53,8 +53,11 @@ def asciitable(filename,cols=(1,),xcol=None,xcolname=None,hypercubenames=None,**
         xcolname = (xcolname,)
 
     # list(.) unpacks the unknown number of returned columns into a list
-    datasets = list(N.loadtxt(filename,usecols=cols,unpack=True))
+#    datasets = list(N.loadtxt(filename,usecols=cols,unpack=True))
+    datasets = N.atleast_2d( N.loadtxt(filename,usecols=cols,unpack=True) )
 
+#    print "In asciitable: len(datasets) = ", len(datasets)
+    
     if xcol is not None:
         if type(xcol) is int:
             xcol = (xcol,)
@@ -94,10 +97,11 @@ def fitsfile_clumpy(filename,ext=None,header=True,**kwargs):
     assert (isinstance(ext,(int,str))),\
         "'ext' must be either integer or a string, specifying the FITS extension by number or by name, respectively."
     
-    dataset, header = pyfits.getdata(filename,ext,header=header)  # dataset.shape is (Nwave,Npix,Npix)
+    dataset, header = pyfits.getdata(filename,ext,header=header)  # dataset.shape is (Nwave,Nypix,Nxpix)
 
     if dataset.ndim == 3:
-        dataset = N.transpose(dataset,axes=(1,2,0))  # now it's (Npix,Npix,Nwave)
+#        dataset = N.transpose(dataset,axes=(1,2,0))  # now it's (Npix,Npix,Nwave)
+        dataset = N.transpose(dataset,axes=(2,1,0))  # now it's (Nxpix,Nypix,Nwave)
     
     # derive properties from header and from additional user-supplied kwargs, if any
     x = N.arange(header['NAXIS1'])
