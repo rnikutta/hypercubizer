@@ -2,9 +2,10 @@
 
 import numpy as N
 import pyfits
+import pandas as pd
 
 __author__ = "Robert Nikutta <robert.nikutta@gmail.com>"
-__version__ = "20160310"
+__version__ = "20160628"
 
 def asciitable(filename,cols=(1,),xcol=None,xcolname=None,hypercubenames=None,**kwargs):
 
@@ -46,23 +47,26 @@ def asciitable(filename,cols=(1,),xcol=None,xcolname=None,hypercubenames=None,**
     """
 
     # if single column index given, convert it to a lenght-one tuple
-    if type(cols) is int:
+    if isinstance(cols,int):
         cols = (cols,)
 
     if isinstance(xcolname,str):
         xcolname = (xcolname,)
 
-    # list(.) unpacks the unknown number of returned columns into a list
-#    datasets = list(N.loadtxt(filename,usecols=cols,unpack=True))
-    datasets = N.atleast_2d( N.loadtxt(filename,usecols=cols,unpack=True) )
+    # add xcol to the list of cols, if xcol not None
+    if isinstance(xcol,int):
+        print "adding xcol", xcol
+        cols = sorted(list(cols) + [xcol])
 
-#    print "In asciitable: len(datasets) = ", len(datasets)
-    
-    if xcol is not None:
-        if type(xcol) is int:
-            xcol = (xcol,)
-            
-        xcol = N.loadtxt(filename,usecols=xcol,unpack=True)
+    # fast-read all requested cols, including xcol (if any) in the mix
+    datasets = N.atleast_2d( pd.read_csv(filename,engine='c',delim_whitespace=True,header=None,comment='#',usecols=cols).values.T )
+
+    # if xcol was given, separate the xcol values from the other columns
+    if isinstance(xcol,int):
+        sel = N.array([True if c != xcol else False for c in cols])
+        print "sel", sel
+        xcol = datasets[~sel,:]
+        datasets = datasets[sel,:]
 
     return datasets, xcolname, xcol, hypercubenames
 #    return datasets, axnames, axvals, hypercubenames
@@ -117,5 +121,3 @@ def fitsfile_clumpy(filename,ext=None,header=True,**kwargs):
     hypercubenames = kwargs['hypercubenames']
     
     return datasets, axnames, axvals, hypercubenames
-
-
