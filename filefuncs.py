@@ -5,7 +5,7 @@ import pyfits
 import pandas as pd
 
 __author__ = "Robert Nikutta <robert.nikutta@gmail.com>"
-__version__ = "20160628"
+__version__ = "20161010"
 
 def asciitable(filename,cols=(1,),xcol=None,xcolname=None,hypercubenames=None,**kwargs):
 
@@ -103,10 +103,17 @@ def fitsfile_clumpy(filename,ext=None,header=True,**kwargs):
     
     dataset, header = pyfits.getdata(filename,ext,header=header)  # dataset.shape is (Nwave,Nypix,Nxpix)
 
-    if dataset.ndim == 3:
+    
+    if dataset.ndim == 2:
+#        dataset = N.transpose(dataset,axes=(1,2,0))  # now it's (Npix,Npix,Nwave)
+        dataset = N.transpose(dataset)
+    elif dataset.ndim == 3:
 #        dataset = N.transpose(dataset,axes=(1,2,0))  # now it's (Npix,Npix,Nwave)
         dataset = N.transpose(dataset,axes=(2,1,0))  # now it's (Nxpix,Nypix,Nwave)
-    
+
+#    print "dataset.shape =", dataset.shape
+
+        
     # derive properties from header and from additional user-supplied kwargs, if any
     x = N.arange(header['NAXIS1'])
     y = N.arange(header['NAXIS2'])
