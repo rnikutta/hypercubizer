@@ -1,11 +1,11 @@
 """Built-in file reading functions."""
 
 import numpy as N
-import pyfits
+import astropy.io.fits as pyfits
 import pandas as pd
 
 __author__ = "Robert Nikutta <robert.nikutta@gmail.com>"
-__version__ = "20161010"
+__version__ = "20170110"
 
 def asciitable(filename,cols=(1,),xcol=None,xcolname=None,hypercubenames=None,**kwargs):
 
@@ -46,6 +46,7 @@ def asciitable(filename,cols=(1,),xcol=None,xcolname=None,hypercubenames=None,**
 
     """
 
+    print filename
     # if single column index given, convert it to a lenght-one tuple
     if isinstance(cols,int):
         cols = (cols,)
@@ -64,7 +65,7 @@ def asciitable(filename,cols=(1,),xcol=None,xcolname=None,hypercubenames=None,**
     # if xcol was given, separate the xcol values from the other columns
     if isinstance(xcol,int):
         sel = N.array([True if c != xcol else False for c in cols])
-        print "sel", sel
+        #print "sel", sel
         xcol = datasets[~sel,:]
         datasets = datasets[sel,:]
 
@@ -101,29 +102,24 @@ def fitsfile_clumpy(filename,ext=None,header=True,**kwargs):
     assert (isinstance(ext,(int,str))),\
         "'ext' must be either integer or a string, specifying the FITS extension by number or by name, respectively."
     
-    dataset, header = pyfits.getdata(filename,ext,header=header)  # dataset.shape is (Nwave,Nypix,Nxpix)
+    dataset, header = pyfits.getdata(filename,ext,header=header)  # dataset.shape is (Nwave,Nypix,Nxpix) for 3D, and (Nypix,Nxpix) for 2D.
 
-    
-    if dataset.ndim == 2:
-#        dataset = N.transpose(dataset,axes=(1,2,0))  # now it's (Npix,Npix,Nwave)
-        dataset = N.transpose(dataset)
-    elif dataset.ndim == 3:
-#        dataset = N.transpose(dataset,axes=(1,2,0))  # now it's (Npix,Npix,Nwave)
-        dataset = N.transpose(dataset,axes=(2,1,0))  # now it's (Nxpix,Nypix,Nwave)
-
-#    print "dataset.shape =", dataset.shape
-
-        
-    # derive properties from header and from additional user-supplied kwargs, if any
     x = N.arange(header['NAXIS1'])
     y = N.arange(header['NAXIS2'])
-    axnames = ['x','y']
-    axvals = [x,y]
-    if 'NAXIS3' in header:
+
+    if dataset.ndim == 2:
+        axes = None
+        axnames = ['x','y']
+        axvals = [x,y]
+
+    elif dataset.ndim == 3:
+        axes = (0,2,1)
         wave = N.array([v for k,v in header.items() if k.startswith('LAMB')])
-        axnames.append('wave')
-        axvals.append(wave)
-        
+        axnames = ['wave','x','y']
+        axvals = [wave,x,y]
+
+    dataset = N.transpose(dataset,axes=axes)  # now it's (Nwave,Nxpix,Nypix) for 3D, and (Nxpix,Nypix) for 2D.
+
     datasets = [dataset]  # has to be a list for function 'convert'
     hypercubenames = kwargs['hypercubenames']
     

@@ -5,11 +5,10 @@ import os, sys, re, warnings
 import numpy as N
 import h5py
 from externals.padarray import padarray
-import pyfits
 import filefuncs
 
 __author__ = "Robert Nikutta <robert.nikutta@gmail.com>"
-__version__ = "201606003"
+__version__ = "20170110"
 
 # TODO: add simple logging
 
@@ -57,15 +56,7 @@ class HdfFile:
 
         """
         
-#        # create dataset
-#        try:
-##            dataset = self.hdf.require_dataset(name, shape=shape, dtype=dtype, compression='gzip',compression_opts=9)
-#            dataset = self.hdf.require_dataset(name, shape=shape, dtype=dtype)
-#        except TypeError:
-#            print "Dataset %s already exists or is incompatible with 'shape' and/or 'dtype'. Exiting."
-#            dataset = self.hdf.require_dataset(name, shape=shape, dtype=dtype)
-
-
+        # create dataset
         if compression is False:
             dataset = self.hdf.require_dataset(name, shape=shape, dtype=dtype)
         else:
@@ -83,7 +74,7 @@ class HdfFile:
             print "    Attribute: ", attr
 
 
-    def store_attrs(self,groupname,obj,attrs,compression=False):
+    def store_attrs(self,groupname,obj,attrs,compression=False,dtype=None):
 
         """Store attributes of an object as datasets within a group in the hdf5 file.
 
@@ -113,25 +104,11 @@ class HdfFile:
         for attr in attrs:
             print "    Attribute: ", attr
 
-#            if attr in self.hdf[groupname]:
             if attr in group:
                 print "    Dataset '%s' already exists in group '%s'. Not touching it, continuing." % (attr,groupname)
                 
             else:
                 value = getattr(obj,attr)
-
-                # force reduced data size (4-byte 32-bit floats) for floating point arrays with more than one dimension
-                if isinstance(value,N.ndarray) and value.ndim > 1:
-                    dtype = N.float32
-                else:
-                    dtype = None
-
-                # create dataset
-#                try:
-##                    dataset = group.create_dataset(attr,data=value,compression='gzip',compression_opts=9,dtype=dtype)
-#                    dataset = group.create_dataset(attr,data=value,dtype=dtype)
-#                except TypeError:
-#                    dataset = group.create_dataset(attr,data=value,dtype=dtype)
 
                 if compression is False:
                     dataset = group.create_dataset(attr,data=value,dtype=dtype)
@@ -200,7 +177,6 @@ class Hypercubes:
         
         # regex pattern, number of values, extracted parameter names (if any)
         self.pattern, self.Nparam, self.paramnames = get_pattern_and_paramnames(pattern)
-#        print "after get_pattern_and_paramnames: self.Nparam = ", self.Nparam
         
         self.rootdir = rootdir
 
@@ -301,7 +277,6 @@ class Hypercubes:
         # re-shaped column data (one hypercube per column read)
         if self.mode == 'ram':
             ramneeded = self.Nhypercubes * N.prod(self.hypercubeshape) * 4. / 1024.**3  # dataset size in GB, assuming float32
-#            print "self.memgigs, ramneeded = ", self.memgigs, ramneeded
             assert (ramneeded <= self.memgigs),\
                 "Mode 'ram' selected. Required RAM (%.3f) exceeds permitted RAM (%.3f). Check 'memgigs' parameter, or use mode='disk'." % (ramneeded,self.memgigs)
             
@@ -374,14 +349,14 @@ class Hypercubes:
             # store theta
             obj = DictToObject({'theta':self.theta.pad})
             attrs = ('theta',)
-            self.hdf.store_attrs(groupname,obj,attrs,compression=compression)
+            self.hdf.store_attrs(groupname,obj,attrs,compression=compression,dtype=N.float64)
             
             # make a temporary object instance to hold the hypercubes
             obj = DictToObject( {'hypercube':self.hypercubes[j]} )
 
             # store all hypercubes to a sub-group (called 'hypercubes') of the top-level group
             attrs = ('hypercube',)
-            self.hdf.store_attrs(groupname,obj,attrs,compression=compression)
+            self.hdf.store_attrs(groupname,obj,attrs,compression=compression,dtype=N.float32)
 
         
 class DictToObject:
