@@ -104,8 +104,11 @@ def fitsfile_clumpy(filename,ext=None,header=True,**kwargs):
     
     dataset, header = pyfits.getdata(filename,ext,header=header)  # dataset.shape is (Nwave,Nypix,Nxpix) for 3D, and (Nypix,Nxpix) for 2D.
 
-    x = N.arange(header['NAXIS1'])
-    y = N.arange(header['NAXIS2'])
+    x = N.arange(float(header['NAXIS1']))
+    y = N.arange(float(header['NAXIS2']))
+
+#    x = range(header['NAXIS1'])
+#    y = range(header['NAXIS2'])
 
     if dataset.ndim == 2:
         axes = None

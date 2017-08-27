@@ -4,11 +4,11 @@
 import os, sys, re, warnings
 import numpy as N
 import h5py
-from externals.padarray import padarray
+#from externals.padarray import padarray
 import filefuncs
 
 __author__ = "Robert Nikutta <robert.nikutta@gmail.com>"
-__version__ = "20170110"
+__version__ = "20170714"
 
 # TODO: add simple logging
 
@@ -110,10 +110,41 @@ class HdfFile:
             else:
                 value = getattr(obj,attr)
 
-                if compression is False:
-                    dataset = group.create_dataset(attr,data=value,dtype=dtype)
+                # detect of value is a ragged array; if yes, store using special procedures
+#                if isinstance(value,(list,tuple,N.ndarray)) and self.isragged(value):
+#                if (not isinstance(value[0],str)) and self.isragged(value):
+#                if isinstance(value,(list,tuple,N.ndarray)) and (not isinstance(value[0],str)) and self.isragged(value):
+                if isinstance(value,N.ndarray) and self.isragged(value):
+                    dataset = h.create_dataset(attr, (len(value),), dtype=dtype)
+                    for j,v in enumerate(value):
+                        dataset[j] = v
+
                 else:
-                    dataset = group.create_dataset(attr,data=value,compression='gzip',compression_opts=9,dtype=dtype)
+                    if compression is False:
+                        dataset = group.create_dataset(attr,data=value,dtype=dtype)
+                    else:
+                        dataset = group.create_dataset(attr,data=value,compression='gzip',compression_opts=9,dtype=dtype)
+
+
+    def isragged(arr):
+
+        """Test if an array is ragged (i.e. unequal-length records).
+
+        Parameters
+        ----------
+        arr : array
+
+        Returns
+        -------
+        ragged : bool
+            Returns True of not all entries in arr are of same length
+            (i.e. arr is indeed ragged). False otherwise.
+
+        """
+        
+        ragged = not (N.unique([len(r) for r in arr]).size == 1)
+        
+        return ragged
 
     
 class Hypercubes:
@@ -195,7 +226,7 @@ class Hypercubes:
         # As described in issue #5 on bitbucket, we need to work
         # around a numpy and/or h5py bug. That's why we nan-pad
         # self.theta, and store as a regular 2-d array (self.theta.pad)
-        self.theta = padarray.PadArray(self.theta)  # has members .pad (2-d array) and .unpad (list of 1-d arrays)
+#PA        self.theta = padarray.PadArray(self.theta)  # has members .pad (2-d array) and .unpad (list of 1-d arrays)
 
         self.store2hdf(compression=compression)
         
@@ -284,7 +315,6 @@ class Hypercubes:
             hypercubes = [N.zeros(shape=self.hypercubeshape,dtype=N.float32) for j in xrange(self.Nhypercubes)]
         
         elif self.mode == 'disk':
-#            hypercubes = [self.hdf.provide_dataset(self.hypercubenames[j]+'/hypercube',self.hypercubeshape,dtype='float32') for j in xrange(self.Nhypercubes)]
             hypercubes = [self.hdf.provide_dataset(self.hypercubenames[j]+'/hypercube',self.hypercubeshape,dtype='float32',compression=compression) for j in xrange(self.Nhypercubes)]
             
         nvalues = float(len(values))
@@ -347,9 +377,11 @@ class Hypercubes:
             self.hdf.store_attrs(groupname,self,attrs,compression=compression)
 
             # store theta
-            obj = DictToObject({'theta':self.theta.pad})
+#PA            obj = DictToObject({'theta':self.theta.pad})
+            obj = DictToObject({'theta':self.theta})
             attrs = ('theta',)
-            self.hdf.store_attrs(groupname,obj,attrs,compression=compression,dtype=N.float64)
+            dflt = h5py.special_dtype(vlen=N.dtype('float64'))
+            self.hdf.store_attrs(groupname,obj,attrs,compression=False,dtype=dflt)
             
             # make a temporary object instance to hold the hypercubes
             obj = DictToObject( {'hypercube':self.hypercubes[j]} )

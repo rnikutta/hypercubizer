@@ -3,26 +3,35 @@ hypercubizer
 
 **Author:** Robert Nikutta
 
-**Version:** 2016-02-12
+**Version:** 2017-01-10
 
 **License:** BSD 3-clause, please see [LICENSE](./LICENSE) file
 
 **Synopsis:**
 Convert an entire directory (possibly with sub-directories) of
-template-based model text files (i.e. each file is one realization of
-a model, with the model results stored as columns in the files) to a
-number of N-dimensional hypercubes. The values of the model parameters
-that generated a file must be contained in the file names.
+template-based model files (i.e. each file is one realization of a
+model, with the model results stored in the files, for instance as
+columns, or arrays, or slices, etc.) to a number of N-dimensional
+hypercubes. The values of the model parameters that generated a file
+must be contained in the file names.
 
-Each column to be read from the files will result in one hypercube
-computed. The shape and dimensionality of the cubes will be determined
-from the number of parameters of the model that generated the text
-files.
+Each data element (e.g. a column, an image, a slice, ...) that is read
+from the files will result in one hypercube computed. The shape and
+dimensionality of the cubes will be automatically determined from the
+number of parameters of the model that generated the files.
 
 **Example:**
-All you need to provide is the root directory containing the text
-files, a pattern for the file names, an which columns you want to be
-read from the files (and turned into hypercubes, like this:
+
+All you need to provide is the root directory containing the model
+output files, a pattern for the file names, and potentiall some
+keyword arguments to the actual function that will read the
+files. Functions to read column-based ASCII files (CSV or white-space
+separated files), and to read CLUMPY image FITS files, are already
+provided. New read functions can be very easily added.
+
+In this example, we assume column-based ASCII files. Just specify root
+directory, file name pattern, and which columns you want to be read
+from the files (and turned into hypercubes, like this:
 
 ```python
 rootdir = '/home/foo/superproject'
@@ -46,7 +55,7 @@ H = Hypercubes(rootdir,pattern,columns)
 ```
 
 From here, everything is automatic. Let the code scan `rootdir`,
-determine the dimensionality (number n of parameters), ready all files
+determine the dimensionality (number n of parameters), read all files
 and convert all desired M columns into M n-dimensional hypercubes.
 
 **Saving the hypercubes:**
