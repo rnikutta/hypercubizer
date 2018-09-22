@@ -5,7 +5,7 @@ import astropy.io.fits as pyfits
 import pandas as pd
 
 __author__ = "Robert Nikutta <robert.nikutta@gmail.com>"
-__version__ = "20170110"
+__version__ = "20180921"
 
 def asciitable(filename,cols=(1,),xcol=None,xcolname=None,hypercubenames=None,**kwargs):
 
@@ -46,7 +46,7 @@ def asciitable(filename,cols=(1,),xcol=None,xcolname=None,hypercubenames=None,**
 
     """
 
-    print filename
+    print(filename)
     # if single column index given, convert it to a lenght-one tuple
     if isinstance(cols,int):
         cols = (cols,)
@@ -56,7 +56,7 @@ def asciitable(filename,cols=(1,),xcol=None,xcolname=None,hypercubenames=None,**
 
     # add xcol to the list of cols, if xcol not None
     if isinstance(xcol,int):
-        print "adding xcol", xcol
+        print("adding xcol", xcol)
         cols = sorted(list(cols) + [xcol])
 
     # fast-read all requested cols, including xcol (if any) in the mix

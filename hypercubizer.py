@@ -8,7 +8,7 @@ import h5py
 import filefuncs
 
 __author__ = "Robert Nikutta <robert.nikutta@gmail.com>"
-__version__ = "20170714"
+__version__ = "20180921"
 
 # TODO: add simple logging
 
@@ -27,7 +27,7 @@ class HdfFile:
         try:
             self.hdf = h5py.File(self.hdffile,self.mode)
         except:
-            print "Problem opening HDF5 file %s with mode %s" % (self.hdffile,self.mode)
+            print("Problem opening HDF5 file %s with mode %s" % (self.hdffile,self.mode))
             raise
 
         
@@ -36,7 +36,7 @@ class HdfFile:
         try:
             self.hdf.close()
         except:
-            print "Problem closing HDF5 file %s" % self.hdffile
+            print("Problem closing HDF5 file %s" % self.hdffile)
 
             
     def provide_dataset(self,name,shape,dtype='float32',compression=False):
@@ -67,11 +67,11 @@ class HdfFile:
 
     def update_attrs(self,groupname,obj,attr,values):
 
-        print "Groupname: ", groupname
+        print("Groupname: ", groupname)
         group = self.hdf.require_group(groupname)
 
         for j,attr in enumerate(attrs):
-            print "    Attribute: ", attr
+            print("    Attribute: ", attr)
 
 
     def store_attrs(self,groupname,obj,attrs,compression=False,dtype=None):
@@ -98,14 +98,14 @@ class HdfFile:
 
         """
         
-        print "Groupname: ", groupname
+        print("Groupname: ", groupname)
         group = self.hdf.require_group(groupname)
         
         for attr in attrs:
-            print "    Attribute: ", attr
+            print("    Attribute: ", attr)
 
             if attr in group:
-                print "    Dataset '%s' already exists in group '%s'. Not touching it, continuing." % (attr,groupname)
+                print("    Dataset '%s' already exists in group '%s'. Not touching it, continuing." % (attr,groupname))
                 
             else:
                 value = getattr(obj,attr)
@@ -232,7 +232,7 @@ class Hypercubes:
         
 #        self.sanity()
 
-        print "Closing hdf5 file."
+        print("Closing hdf5 file.")
         self.hdf.close()
 
                 
@@ -295,7 +295,7 @@ class Hypercubes:
         self.axvals = axvals
         
         if self.axnames is None:
-            self.axnames = ['ax%02d' % j for j in xrange(ndim)]
+            self.axnames = ['ax%02d' % j for j in range(ndim)]
 
         if self.axvals is None:
             self.axvals = [N.arange(axissize) for axissize in datasets[0].shape] # this explictly assumes that all datasets are of same shape!
@@ -312,15 +312,15 @@ class Hypercubes:
                 "Mode 'ram' selected. Required RAM (%.3f) exceeds permitted RAM (%.3f). Check 'memgigs' parameter, or use mode='disk'." % (ramneeded,self.memgigs)
             
             # careful not to reference the same physical array n times
-            hypercubes = [N.zeros(shape=self.hypercubeshape,dtype=N.float32) for j in xrange(self.Nhypercubes)]
+            hypercubes = [N.zeros(shape=self.hypercubeshape,dtype=N.float32) for j in range(self.Nhypercubes)]
         
         elif self.mode == 'disk':
-            hypercubes = [self.hdf.provide_dataset(self.hypercubenames[j]+'/hypercube',self.hypercubeshape,dtype='float32',compression=compression) for j in xrange(self.Nhypercubes)]
+            hypercubes = [self.hdf.provide_dataset(self.hypercubenames[j]+'/hypercube',self.hypercubeshape,dtype='float32',compression=compression) for j in range(self.Nhypercubes)]
             
         nvalues = float(len(values))
 
         # LOOP OVER GOOD FILES
-        print "Converting matched models to hypercubes"
+        print("Converting matched models to hypercubes")
         for ivalue,value in enumerate(values):
 
             f = files[ivalue]
@@ -336,7 +336,7 @@ class Hypercubes:
             datasets, axnames, axvals, hypercubenames = self.func(f,**kwargs)  # kwargs are: cols, e.g.: cols=(0,(1,2,3))
             
             # store the read datasets (iy) into the appropriate hypercubes, in the determined N-dim index 'pos'.
-            for iy in xrange(len(hypercubes)):
+            for iy in range(len(hypercubes)):
                 hypercubes[iy][pos] = datasets[iy]
 
         # extend list of parameter names by the axes of a single dataset
@@ -448,7 +448,7 @@ def progressbar(i,n,prefix="",suffix=""):
     sys.stdout.flush()
                 
     if i == n-1:
-        print "\n"
+        print("\n")
 
 
 def get_pattern_and_paramnames(examplefile):
@@ -524,19 +524,19 @@ def get_pattern_and_paramnames(examplefile):
     # try to extract parameter values from the supplied example pattern
     values = round_pattern.findall(examplefile)
     if values == []:
-        raise Exception, "No numerical parameter values found in 'examplefile'. Make sure to enclose the numerical value is round brackets, e.g. (0.127)."
+        raise Exception("No numerical parameter values found in 'examplefile'. Make sure to enclose the numerical value is round brackets, e.g. (0.127).")
     else:
         # check if all found values can be converted to floats
         try:
             dummy = N.array(values,dtype=N.float64)
         except ValueError:
-            print "Not all parameter values in 'examplefile' (those enclosed in round brackets ()) could be converted to floating-point numbers. Please check."
+            print("Not all parameter values in 'examplefile' (those enclosed in round brackets ()) could be converted to floating-point numbers. Please check.")
 
     # try to extract parameter names
     paramnames = square_pattern.findall(examplefile)
     if paramnames == []:
         # no automatic param names; either user supplies them separately, or we'll do generic ones (par0, par1, etc.)
-        print "No automatic parameter names could be determined from the supplied example file pattern."
+        print("No automatic parameter names could be determined from the supplied example file pattern.")
     else:
         assert (len(values) == len(paramnames)), "Number of round () and square brackets [] in 'examplefile' must be equal (same number of parameter names and parameter values)."
     
@@ -640,10 +640,10 @@ def get_files_in_dir(root,verbose=False,returnsorted=True):
     sep = os.path.sep
 
     for dirname, subdirlist, filelist in os.walk(root):
-        if verbose == True: print "Entering dir ", dirname
+        if verbose == True: print("Entering dir ", dirname)
         
         for fname in filelist:
-            if verbose == True: print "Adding file ", fname
+            if verbose == True: print("Adding file ", fname)
 
             files.append(dirname+sep+fname)
 
@@ -708,7 +708,7 @@ def match_pattern_to_strings(strings,\
     # Try to match each file name to the pattern. Extract parameter
     # values from matching file names. Ignore file names that don't
     # match the pattern.
-    print "Matching file names to pattern"
+    print("Matching file names to pattern")
     for j,s in enumerate(strings):
         
         if progress == True:
@@ -718,7 +718,7 @@ def match_pattern_to_strings(strings,\
             try:
                 arg = op(s)  # operation 'op' is given by the user. For instance, this could be os.path.basename(s)
             except:
-                raise Exception, "Applying op to argument %d, '%s', failed." % (j,s)
+                raise Exception("Applying op to argument %d, '%s', failed." % (j,s))
         else:
             arg = s
 
@@ -729,6 +729,6 @@ def match_pattern_to_strings(strings,\
         except AttributeError:
             pass
 
-    print "Successfully matched %d of %s files.\n" % (len(matched_strings),len(strings))
+    print("Successfully matched %d of %s files.\n" % (len(matched_strings),len(strings)))
 
     return matched_strings, matched_values
